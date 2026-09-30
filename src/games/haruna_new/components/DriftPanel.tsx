@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import type { Game } from '../game/Game';
 import type { DriftHud } from '../game/Game';
-import { DRIFT_ORDER, DRIFT_LABEL, DRIFT_DESC, DRIFT_SLIDERS, RC_TIRES, type DriftTune } from '../game/drift';
+import {
+  DRIFT_ORDER,
+  DRIFT_LABEL,
+  DRIFT_DESC,
+  DRIFT_SLIDERS,
+  HARUNA_PRESETS,
+  HARUNA_SLIDERS,
+  RC_TIRES,
+  type DriftTune,
+} from '../game/drift';
 
 const FLAMES: Record<string, string> = { normal: '—', sedang: '🔥', pas: '🔥🔥', best: '🔥🔥🔥', rc: '🏎 RC' };
 
@@ -19,6 +28,7 @@ export default function DriftPanel({
   const [rev, setRev] = useState(0);
   const [vals, setVals] = useState<DriftTune | null>(null);
   const [open, setOpen] = useState(false);
+  const [harunaSetupOpen, setHarunaSetupOpen] = useState(true);
 
   // sinkronkan tampilan angka bila mode diganti / tuning direset
   useEffect(() => {
@@ -61,6 +71,95 @@ export default function DriftPanel({
         ))}
       </div>
       <p className="mt-2 text-xs leading-relaxed text-white/65">{DRIFT_DESC[mode]}</p>
+
+      {/* ---------- TOYOTA AE86 PANDA / HARUNA SETUP ---------- */}
+      {!isRc && (
+        <div className="mt-3 rounded-xl bg-[#f0b98a]/10 p-3 ring-1 ring-[#f0b98a]/35">
+          <button
+            onClick={() => setHarunaSetupOpen((v) => !v)}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[#f0b98a]">
+                Toyota AE86 Panda · Haruna Setup
+              </div>
+              <div className="mt-0.5 text-[10px] text-white/50">
+                Akselerasi · drifting · throttle · handling
+              </div>
+            </div>
+            <span className="text-white/60">{harunaSetupOpen ? '▾' : '▸'}</span>
+          </button>
+
+          {harunaSetupOpen && (
+            <div className="mt-3 space-y-3">
+              <div>
+                <div className="mb-1.5 text-[10px] uppercase tracking-widest text-white/50">Preset saran</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {HARUNA_PRESETS.map((preset) => {
+                    const active =
+                      vals?.acceleration === preset.setup.acceleration &&
+                      vals?.driftResponse === preset.setup.driftResponse &&
+                      vals?.throttleResponse === preset.setup.throttleResponse &&
+                      vals?.handlingAssist === preset.setup.handlingAssist;
+                    return (
+                      <button
+                        key={preset.id}
+                        onClick={() => {
+                          game?.applyHarunaPreset(preset.id);
+                          setVals({ ...preset.setup });
+                          setRev((r) => r + 1);
+                        }}
+                        className={`rounded-xl p-2 text-left ring-1 transition ${
+                          active
+                            ? 'bg-[#f0b98a] text-[#1d1814] ring-[#f0b98a]'
+                            : 'bg-black/20 text-white ring-white/10 hover:bg-white/10'
+                        }`}
+                      >
+                        <div className="text-[10px] font-black leading-tight">{preset.label}</div>
+                        <div className={`mt-1 text-[9px] leading-snug ${active ? 'text-[#1d1814]/70' : 'text-white/50'}`}>
+                          {preset.sub}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {vals && (
+                <div className="space-y-2.5 border-t border-white/10 pt-2.5">
+                  {HARUNA_SLIDERS.map((s) => (
+                    <div key={`${rev}-${s.key}`}>
+                      <div className="flex items-baseline justify-between text-xs">
+                        <span className="font-bold text-white/90">{s.label}</span>
+                        <span className="font-mono text-[#f0b98a]">{s.fmt(vals[s.key])}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={s.min}
+                        max={s.max}
+                        step={s.step}
+                        value={vals[s.key]}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          game?.setHarunaParam(s.key, v);
+                          setVals((p) => (p ? { ...p, [s.key]: v } : p));
+                        }}
+                        className="mt-1 w-full accent-[#f0b98a]"
+                      />
+                      <div className="text-[10px] leading-snug text-white/40">{s.hint}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-lg bg-black/25 p-2 text-[10px] leading-relaxed text-white/55">
+                <b className="text-white/80">Manual tetap aman:</b> throttle hanya aktif saat W / ArrowUp ditekan.
+                Handling assist membantu koreksi setir, bukan auto-gas.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ---------- RC DRIFT ---------- */}
       {isRc && rc && (

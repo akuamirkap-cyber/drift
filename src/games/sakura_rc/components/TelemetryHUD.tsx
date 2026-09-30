@@ -20,6 +20,7 @@ import {
   CircuitDef,
   GameMode,
   LiveTelemetry,
+  SpeedLevel,
   TuningSetup,
 } from '../types/rcDrift';
 
@@ -29,6 +30,8 @@ interface TelemetryHUDProps {
   onSelectCircuit: (c: CircuitDef) => void;
   gameMode: GameMode;
   onSelectGameMode: (m: GameMode) => void;
+  speedLevel: SpeedLevel;
+  onChangeSpeedLevel: (level: SpeedLevel) => void;
   cameraMode: CameraMode;
   onCycleCamera: () => void;
   bodyShellMode: BodyShellMode;
@@ -110,6 +113,8 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
   onSelectCircuit,
   gameMode,
   onSelectGameMode,
+  speedLevel,
+  onChangeSpeedLevel,
   cameraMode,
   onCycleCamera,
   bodyShellMode,
@@ -196,8 +201,12 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
             <div className="w-2 h-9 rounded-full bg-[#00F0FF] shadow-[0_0_12px_#00F0FF]" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono-tabular uppercase tracking-widest px-1.5 py-0.5 rounded bg-[#00F0FF]/15 text-[#00F0FF] border border-[#00F0FF]/30">
-                  SKYLINE R34 // AULA
+                <span className={`text-[10px] font-mono-tabular uppercase tracking-widest px-1.5 py-0.5 rounded border ${
+                  circuit.mapStyle === 'haruna'
+                    ? 'bg-[#E5C06A]/15 text-[#FDE68A] border-[#E5C06A]/40'
+                    : 'bg-[#00F0FF]/15 text-[#00F0FF] border-[#00F0FF]/30'
+                }`}>
+                  {circuit.mapStyle === 'haruna' ? 'SKYLINE R34 // HARUNA OUTDOOR' : 'SKYLINE R34 // AULA'}
                 </span>
                 <span className="text-[11px] text-slate-400 truncate hidden sm:inline">
                   {circuit.jpName}
@@ -209,7 +218,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
                   const found = circuits.find((c) => c.id === e.target.value);
                   if (found) onSelectCircuit(found);
                 }}
-                aria-label="Select Circuit"
+                aria-label="Select Map or Circuit"
                 className="mt-0.5 bg-transparent font-display font-bold text-sm sm:text-base text-white tracking-wider uppercase focus:outline-none cursor-pointer pr-2"
               >
                 {circuits.map((c) => (
@@ -253,6 +262,32 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
                 </button>
               );
             })}
+          </div>
+
+          {/* Speed profile — can be changed without leaving the race */}
+          <div className="hud-panel rounded-xl px-2.5 py-1.5 flex items-center gap-2">
+            <span className="text-[10px] font-mono-tabular font-bold tracking-widest text-slate-300 uppercase">
+              KECEPATAN
+            </span>
+            <div className="flex gap-1 bg-black/45 rounded-lg p-0.5 border border-white/10">
+              {([
+                ['normal', 'NORMAL'],
+                ['sedang', 'SEDANG'],
+                ['2x', '2X'],
+              ] as [SpeedLevel, string][]).map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() => onChangeSpeedLevel(value)}
+                  className={`px-2.5 py-1 rounded-md text-[10px] font-mono-tabular font-bold transition cursor-pointer ${
+                    speedLevel === value
+                      ? 'bg-[#FB7185] text-black shadow-[0_0_10px_rgba(251,113,133,0.5)]'
+                      : 'text-slate-300 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* LIVE 2D CIRCUIT TRACK MAP RADAR */}

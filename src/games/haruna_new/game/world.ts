@@ -18,7 +18,6 @@ export interface World {
   treeCount: number;
 }
 
-const H = ROAD_HALF;
 export const TREE_CELL = 8;
 export const tkey = (cx: number, cz: number) => (cx + 2000) * 8000 + (cz + 2000);
 
@@ -127,7 +126,15 @@ function makeBannerTexture(text: string, sub: string, color: string) {
   return t;
 }
 
-export function buildWorld(track: Track, onProgress?: (p: string) => void): World {
+export function buildWorld(
+  track: Track,
+  onProgress?: (p: string) => void,
+  roadHalfWidth = ROAD_HALF,
+  includeRoadSurface = true
+): World {
+  // Sakura RC can request the same 10.4 m road width as Tokyo Grand Aula
+  // while the standalone Haruna game keeps its original 8.4 m road by default.
+  const H = roadHalfWidth;
   const group = new THREE.Group();
   const rng = mulberry32(42);
 
@@ -513,8 +520,9 @@ export function buildWorld(track: Track, onProgress?: (p: string) => void): Worl
   group.add(water);
 
   // ------------------------------------------------------------------ ROAD
-  onProgress?.('Mengaspal Route 33...');
   const n = track.n;
+  if (includeRoadSurface) {
+    onProgress?.('Mengaspal Route 33...');
   const rpos = new Float32Array(n * 2 * 3);
   const ruv = new Float32Array(n * 2 * 2);
   for (let i = 0; i < n; i++) {
@@ -553,6 +561,7 @@ export function buildWorld(track: Track, onProgress?: (p: string) => void): Worl
   road.renderOrder = 1;
   road.receiveShadow = true;
   group.add(road);
+  }
   // --- BENCH: pita tanah rata yang menempel pada aspal -----------------------
   // Menutupi seluruh koridor jalan (aspal + bahu + saluran) dan mengikuti kontur
   // terrain di tepi luarnya. Karena dibangun dari sample jalan, permukaan ini

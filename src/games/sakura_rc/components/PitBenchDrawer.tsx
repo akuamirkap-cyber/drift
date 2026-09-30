@@ -27,6 +27,7 @@ import {
 import {
   DEFAULT_SMOKE_CONFIG,
   DEFAULT_SUSPENSION_SETUP,
+  HARUNA_DRIVING_PRESETS,
   PRO_SUSPENSION_KITS,
   RC_BODIES,
   SMOKE_PRESETS,
@@ -41,6 +42,8 @@ interface PitBenchDrawerProps {
   onChangeTuning: (newTuning: TuningSetup) => void;
   customization: CarCustomization;
   onChangeCustomization: (newCustom: CarCustomization) => void;
+  /** Haruna-only driving controls stay out of the normal Aula setup sheet. */
+  isHarunaMap?: boolean;
   initialTab?: 'suspension' | 'smoke' | 'chassis' | 'tuning';
 }
 
@@ -76,6 +79,7 @@ export const PitBenchDrawer: React.FC<PitBenchDrawerProps> = ({
   onChangeTuning,
   customization,
   onChangeCustomization,
+  isHarunaMap = false,
   initialTab = 'suspension',
 }) => {
   const [activeTab, setActiveTab] = useState<
@@ -118,6 +122,22 @@ export const PitBenchDrawer: React.FC<PitBenchDrawerProps> = ({
     updateSmokeCfg({
       ...p.config,
       mode: 'new_pipeline',
+    });
+  };
+
+  const harunaTuning = {
+    accelerationPower: tuning.accelerationPower ?? 100,
+    driftResponse: tuning.driftResponse ?? 55,
+    throttleResponse: tuning.throttleResponse ?? 100,
+    handlingAssist: tuning.handlingAssist ?? 35,
+  };
+
+  const updateHarunaTuning = (
+    partial: Partial<typeof harunaTuning>
+  ) => {
+    onChangeTuning({
+      ...tuning,
+      ...partial,
     });
   };
 
@@ -721,6 +741,205 @@ export const PitBenchDrawer: React.FC<PitBenchDrawerProps> = ({
             </>
           ) : activeTab === 'tuning' ? (
             <>
+              {isHarunaMap && (
+                <div className="space-y-4 bg-gradient-to-br from-[#21121d] via-slate-950/95 to-[#101a28] p-4 rounded-2xl border border-[#FF2A85]/55 shadow-[0_0_24px_rgba(255,42,133,0.12)]">
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-[#FF2A85]">
+                        <Sparkles className="w-4 h-4" />
+                        <span className="text-xs font-display font-extrabold uppercase tracking-wider">
+                          HARUNA / AKINA DOWNHILL CONTROL
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-mono-tabular px-1.5 py-0.5 rounded bg-[#CCFF00]/15 text-[#CCFF00] border border-[#CCFF00]/30">
+                        SAKURA RC PRO
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Preset ini hanya mengubah feel mobil Sakura RC Pro. W / throttle tetap wajib ditekan;
+                      mobil tidak akan maju sendiri.
+                    </p>
+                  </div>
+
+                  <div>
+                    <div className="text-[10px] font-display font-bold uppercase tracking-wider text-slate-300 mb-2">
+                      PRESET SARAN — PILIH SEKALI, LALU FINE-TUNE
+                    </div>
+                    <div className="grid grid-cols-1 gap-2">
+                      {HARUNA_DRIVING_PRESETS.map((preset) => {
+                        const isSelected =
+                          harunaTuning.accelerationPower === preset.setup.accelerationPower &&
+                          harunaTuning.driftResponse === preset.setup.driftResponse &&
+                          harunaTuning.throttleResponse === preset.setup.throttleResponse &&
+                          harunaTuning.handlingAssist === preset.setup.handlingAssist &&
+                          (tuning.speedLevel ?? 'normal') === preset.setup.speedLevel;
+                        return (
+                          <button
+                            key={preset.id}
+                            onClick={() =>
+                              onChangeTuning({
+                                ...tuning,
+                                ...preset.setup,
+                                smokeConfig: tuning.smokeConfig || DEFAULT_SMOKE_CONFIG,
+                              })
+                            }
+                            className={`text-left p-2.5 rounded-xl border transition cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#FF2A85]/20 border-[#FF2A85] shadow-[0_0_14px_rgba(255,42,133,0.2)]'
+                                : 'bg-slate-900/75 border-white/10 hover:border-[#FF2A85]/60'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-display font-bold text-xs text-white tracking-wider">
+                                {preset.name}
+                              </span>
+                              {isSelected && (
+                                <span className="text-[9px] font-mono-tabular px-1.5 py-0.5 rounded bg-[#FF2A85] text-white font-bold shrink-0">
+                                  AKTIF
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {preset.subtitle}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 bg-black/20 p-3 rounded-xl border border-white/10">
+                    <div className="text-[10px] font-display font-bold uppercase tracking-wider text-[#CCFF00] border-b border-white/10 pb-2">
+                      FINE-TUNE HARUNA FEEL
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-display font-bold text-[11px] uppercase tracking-wider text-white">
+                          AKSELERASI / MOTOR POWER
+                        </span>
+                        <span className="font-mono-tabular font-bold text-xs text-[#CCFF00]">
+                          {harunaTuning.accelerationPower}%
+                        </span>
+                      </div>
+                      <input
+                        aria-label="Haruna acceleration power"
+                        type="range"
+                        min={65}
+                        max={140}
+                        value={harunaTuning.accelerationPower}
+                        onChange={(e) =>
+                          updateHarunaTuning({ accelerationPower: Number(e.target.value) })
+                        }
+                        className="w-full rc-slider"
+                      />
+                      <div className="flex justify-between text-[9px] font-mono-tabular text-slate-500">
+                        <span>LEMBUT</span><span>RESPONSIF</span><span>KUAT</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-display font-bold text-[11px] uppercase tracking-wider text-white">
+                          KARAKTER / RESPONS DRIFT
+                        </span>
+                        <span className="font-mono-tabular font-bold text-xs text-[#FF2A85]">
+                          {harunaTuning.driftResponse}%
+                        </span>
+                      </div>
+                      <input
+                        aria-label="Haruna drift response"
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={harunaTuning.driftResponse}
+                        onChange={(e) =>
+                          updateHarunaTuning({ driftResponse: Number(e.target.value) })
+                        }
+                        className="w-full rc-slider"
+                      />
+                      <div className="flex justify-between text-[9px] font-mono-tabular text-slate-500">
+                        <span>GRIP</span><span>BALANCED</span><span>AGRESIF</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-display font-bold text-[11px] uppercase tracking-wider text-white">
+                          KECEPATAN NGEGAS / THROTTLE RESPONSE
+                        </span>
+                        <span className="font-mono-tabular font-bold text-xs text-[#00F0FF]">
+                          {harunaTuning.throttleResponse}%
+                        </span>
+                      </div>
+                      <input
+                        aria-label="Haruna throttle response"
+                        type="range"
+                        min={50}
+                        max={150}
+                        value={harunaTuning.throttleResponse}
+                        onChange={(e) =>
+                          updateHarunaTuning({ throttleResponse: Number(e.target.value) })
+                        }
+                        className="w-full rc-slider"
+                      />
+                      <div className="flex justify-between text-[9px] font-mono-tabular text-slate-500">
+                        <span>HALUS</span><span>PROGRESIF</span><span>CEPAT</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-display font-bold text-[11px] uppercase tracking-wider text-white">
+                          KERINGANAN / HANDLING ASSIST
+                        </span>
+                        <span className="font-mono-tabular font-bold text-xs text-[#00F0FF]">
+                          {harunaTuning.handlingAssist}%
+                        </span>
+                      </div>
+                      <input
+                        aria-label="Haruna handling assist"
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={harunaTuning.handlingAssist}
+                        onChange={(e) =>
+                          updateHarunaTuning({ handlingAssist: Number(e.target.value) })
+                        }
+                        className="w-full rc-slider"
+                      />
+                      <div className="flex justify-between text-[9px] font-mono-tabular text-slate-500">
+                        <span>RAW</span><span>NYAMAN</span><span>STABIL</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[11px] font-display font-bold uppercase tracking-wider text-white mb-2">
+                        SPEED PROFILE / BATAS KECEPATAN
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['normal', 'sedang', '2x'] as const).map((level) => {
+                          const active = (tuning.speedLevel ?? 'normal') === level;
+                          return (
+                            <button
+                              key={level}
+                              onClick={() => onChangeTuning({ ...tuning, speedLevel: level })}
+                              className={`py-2 rounded-lg border font-mono-tabular text-[10px] font-bold transition cursor-pointer ${
+                                active
+                                  ? 'bg-[#00F0FF] text-[#0B0D13] border-[#00F0FF]'
+                                  : 'bg-slate-900 text-slate-300 border-white/10 hover:border-[#00F0FF]/60'
+                              }`}
+                            >
+                              {level.toUpperCase()}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* RC Sound Box Mode Selector */}
               <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-[#00F0FF]/30">
                 <div className="text-xs font-display font-bold uppercase tracking-wider text-white mb-2 flex items-center justify-between">
@@ -789,6 +1008,7 @@ export const PitBenchDrawer: React.FC<PitBenchDrawerProps> = ({
                         key={preset.id}
                         onClick={() =>
                           onChangeTuning({
+                            ...tuning,
                             ...preset.setup,
                             smokeConfig: tuning.smokeConfig || DEFAULT_SMOKE_CONFIG,
                           })
@@ -1152,7 +1372,9 @@ export const PitBenchDrawer: React.FC<PitBenchDrawerProps> = ({
             onClick={onClose}
             className="w-full py-3 rounded-xl bg-gradient-to-r from-[#00F0FF] to-[#CCFF00] text-[#0B0D13] font-display font-extrabold text-sm tracking-wider uppercase shadow-[0_0_20px_rgba(0,240,255,0.4)] hover:brightness-110 transition cursor-pointer"
           >
-            RETURN TO AULA TRACK // APPLY SETUP
+            {isHarunaMap
+              ? 'RETURN TO HARUNA DOWNHILL // APPLY SETUP'
+              : 'RETURN TO AULA TRACK // APPLY SETUP'}
           </button>
         </div>
       </div>

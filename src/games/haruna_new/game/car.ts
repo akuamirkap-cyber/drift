@@ -384,15 +384,27 @@ export class Car {
     let rz = fx;
     let vF = this.vx * fx + this.vz * fz;
     const speed = Math.abs(vF);
+    const throttleResponse = THREE.MathUtils.clamp(this.tune.throttleResponse, 0.5, 1.5);
+    const handlingAssist = THREE.MathUtils.clamp(this.tune.handlingAssist, 0, 1);
+    const driftResponse = THREE.MathUtils.clamp(this.tune.driftResponse, 0, 1);
+    this.thr += (inp.throttle - this.thr) * Math.min(1, dt * 3.6 * throttleResponse);
+    const gas = this.thr;
 
     // --- yaw ---
-    const maxSteer = 0.62 - 0.44 * Math.min(1, speed / 42);
+    // AE86 steering should stay light at speed; the old curve lost too much lock
+    // on the downhill straights and made the car feel like a heavy simulator.
+    const maxSteer =
+      (0.68 - 0.38 * Math.min(1, speed / 42)) *
+      (1 + handlingAssist * 0.1);
     const steerAng = this.steerVis * maxSteer;
     this.steerAngle = this.steerVis * 0.55;
     let yawTarget = (-vF * Math.tan(steerAng)) / 2.4;
     const slipAngle = Math.atan2(Math.abs(this.vL), Math.max(2, speed));
     if (inp.handbrake && speed > 3) yawTarget *= 1.5;
-    if (inp.throttle > 0 && speed > 8 && slipAngle > 0.12) yawTarget *= 1.18; // RWD power oversteer
+    if (gas > 0 && speed > 8 && slipAngle > 0.12) {
+      yawTarget *= 1.18 + driftResponse * 0.12; // RWD power oversteer
+    }
+    yawTarget *= 1 + handlingAssist * 0.08;
     const yawResp = (this.onRoad ? 7 : 4) * (inp.handbrake ? 0.8 : 1);
     this.yawRate += (yawTarget - this.yawRate) * Math.min(1, dt * yawResp);
     this.heading += this.yawRate * dt;
@@ -406,8 +418,9 @@ export class Car {
 
     // --- longitudinal ---
     let a = 0;
-    const engine = 7.8 * Math.max(0, 1 - (vF / TOP) ** 2) * (this.onRoad ? 1 : 0.72);
-    if (inp.throttle > 0) a += engine * inp.throttle;
+    const engine =
+      7.8 * this.tune.acceleration * Math.max(0, 1 - (vF / TOP) ** 2) * (this.onRoad ? 1 : 0.72);
+    if (gas > 0) a += engine * gas;
     if (inp.brake > 0) {
       if (vF > 0.6) a -= 13 * inp.brake * grip;
       else a -= 4.5 * inp.brake * (vF > -9 ? 1 : 0);
@@ -429,7 +442,8 @@ export class Car {
     this.aF = (vF - prevVF) / Math.max(dt, 1e-4);
 
     // --- lateral ---
-    let latGrip = 5.6 * grip;
+    let latGrip =
+      5.6 * grip * (1 + handlingAssist * 0.18) * Math.max(0.65, 1 - (driftResponse - 0.55) * 0.18);
     if (inp.handbrake) latGrip *= 0.28;
     if (slipAngle > 0.22) latGrip *= 0.72;
     const newVL = vL * Math.exp(-latGrip * dt);
@@ -442,7 +456,6 @@ export class Car {
     this.vz = fz * vF + rz * vL;
     this.vF = vF;
     this.vL = vL;
-    this.thr = inp.throttle;
     this.rearSlide = 0;
     this.kickT = 0;
     this.boost = 0;
@@ -455,6 +468,10 @@ export class Car {
   private dynamicsDrift(dt: number, inp: CarInput, track: Track, world: World, surface: number) {
     const T = this.tune;
     const rc = this.driftMode === 'rc';
+    const throttleResponse = THREE.MathUtils.clamp(T.throttleResponse, 0.5, 1.5);
+    const handlingAssist = THREE.MathUtils.clamp(T.handlingAssist, 0, 1);
+    const driftResponse = THREE.MathUtils.clamp(T.driftResponse, 0, 1);
+    const driftLimit = T.maxAngle * (0.9 + driftResponse * 0.2);
 
     // kemiringan jalan (gravitasi) — dihitung sekali per pemanggilan
     const f0x = Math.sin(this.heading);
@@ -509,7 +526,9 @@ export class Car {
 
       // --- gas dihaluskan (keyboard → terasa analog), kick, handbrake ---
       const tgt = inp.throttle;
-      this.thr += (tgt - this.thr) * Math.min(1, h * (tgt > this.thr ? 3.6 : 10));
+      this.thr +=
+        (tgt - this.thr) *
+        Math.min(1, h * (tgt > this.thr ? 4.8 * throttleResponse : 11));
       this.kickT = Math.max(0, this.kickT - h);
       this.hbS += ((inp.handbrake ? 1 : 0) - this.hbS) * Math.min(1, h * 14);
 
@@ -526,7 +545,8 @@ export class Car {
       const beta = Math.atan2(v, Math.max(au, 0.5));
       const vfLat = v - CG_FRONT * r; // kecepatan lateral as depan
       const dStar = clamp(Math.atan2(vfLat, Math.max(au, 3)), -maxEff, maxEff); // roda searah gerak = tanpa slip depan
-      const w = u > 3 ? T.counterSteer * smoothstep(0.06, 0.3, Math.abs(beta)) * smoothstep(3, 9, u) : 0;
+      const counterAssist = clamp(T.counterSteer + handlingAssist * 0.28, 0, 1);
+      const w = u > 3 ? counterAssist * smoothstep(0.06, 0.3, Math.abs(beta)) * smoothstep(3, 9, u) : 0;
       const us = Math.sign(this.steerVis) * Math.pow(Math.abs(this.steerVis), T.expo);
       // gyro: membaca yaw rate dan memberi counter-steer proporsional (yaw + = kiri → setir + = kanan)
       const gyroAdd = T.gyro > 0 ? T.gyro * 0.45 * r * smoothstep(2, 8, au) : 0;
@@ -539,16 +559,32 @@ export class Car {
       const Nr = clamp((MASS * GRAV * CG_FRONT) / WHEELBASE + dN, 0.25 * MASS * GRAV, 0.85 * MASS * GRAV);
 
       // --- grip (anti-spin: grip belakang pulih bila sudut melewati batas) ---
-      const assist = u > 3 ? 1 + T.angleAssist * 1.1 * smoothstep(T.maxAngle, T.maxAngle + 0.4, Math.abs(beta)) : 1;
+      const assist =
+        u > 3
+          ? 1 +
+            (T.angleAssist + handlingAssist * 0.45) *
+              1.1 *
+              smoothstep(driftLimit, driftLimit + 0.4, Math.abs(beta))
+          : 1;
       const muF = T.frontGrip * surface;
-      const muR = T.rearGrip * surface * assist;
+      // Respons drift tinggi sedikit mengurangi rear bite agar ekor lebih mudah keluar.
+      const rearResponseGrip = 1 - (driftResponse - 0.55) * 0.32;
+      const muR = T.rearGrip * rearResponseGrip * surface * assist;
       const capF = muF * Nf;
       const capR = muR * Nr;
 
       // --- gaya longitudinal (ESC turbo menambah tenaga sebanding boost) ---
-      const launch = 0.6 + 0.4 * smoothstep(0, 10, au);
+      // Beri dorongan awal yang cukup supaya AE86 tidak terasa berat saat keluar hairpin.
+      const launch = 0.76 + 0.24 * smoothstep(0, 10, au);
       const Fe =
-        MASS * 7.0 * T.power * (1 + T.turbo * 0.7 * this.boost) * Math.max(0, 1 - (u / TOP) ** 2) * (surface < 1 ? 0.75 : 1) * launch;
+        MASS *
+        7.0 *
+        T.power *
+        T.acceleration *
+        (1 + T.turbo * 0.7 * this.boost) *
+        Math.max(0, 1 - (u / TOP) ** 2) *
+        (surface < 1 ? 0.75 : 1) *
+        launch;
       const kickAdd = T.kick * 0.9 * (this.kickT / KICK_TIME);
       let FxDrive = Fe * (this.thr + kickAdd);
       let FxBrakeF = 0;
@@ -586,7 +622,14 @@ export class Car {
       const Fxb = FxRc + FxFc - Fyf * sd - dragAir + Fgrav;
       let torque = -CG_FRONT * Fyf * cd + CG_REAR * Fyr;
       // peredam yaw anti-spin pada sudut ekstrem
-      if (u > 3) torque -= IZ * r * T.angleAssist * 5 * smoothstep(T.maxAngle * 0.9, T.maxAngle * 0.9 + 0.45, Math.abs(beta));
+      if (u > 3) {
+        torque -=
+          IZ *
+          r *
+          (T.angleAssist + handlingAssist * 0.42) *
+          5 *
+          smoothstep(driftLimit * 0.9, driftLimit * 0.9 + 0.45, Math.abs(beta));
+      }
 
       // --- integrasi ---
       this.vx += (fx * (Fxb / MASS) + rx * (Fy / MASS)) * h;

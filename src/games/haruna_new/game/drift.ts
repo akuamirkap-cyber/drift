@@ -33,6 +33,11 @@ export interface DriftTune {
   wtRate: number; // kecepatan perpindahan beban (oli damper kental = lambat)
   rollVis: number; // pengali rolling bodi visual
   expo: number; // kurva eksponensial setir (1 = linear)
+  // --- Haruna / AE86 Panda driving feel ---
+  acceleration: number; // 0.65..1.4 — kekuatan akselerasi
+  driftResponse: number; // 0..1 — seberapa mudah mobil melepas ekor
+  throttleResponse: number; // 0.5..1.5 — kecepatan respons gas
+  handlingAssist: number; // 0..1 — bantuan stabilitas dan anti-spin tambahan
 }
 
 export const DRIFT_ORDER: DriftMode[] = ['normal', 'sedang', 'pas', 'best', 'rc'];
@@ -53,52 +58,205 @@ export const DRIFT_DESC: Record<DriftMode, string> = {
   rc: 'Sakura RC Drift Pro: sasis RC 1:10 RWD — gyro, knuckle 76°+, ban HDPE, ESC turbo, suara RB26 & Pit Bench.',
 };
 
-const BASE = { gyro: 0, turbo: 0, wtGain: 1, wtRate: 8, rollVis: 1, expo: 1 };
+const BASE = {
+  gyro: 0,
+  turbo: 0,
+  wtGain: 1,
+  wtRate: 8,
+  rollVis: 1,
+  expo: 1,
+  // Baseline AE86 is intentionally light and forgiving rather than sluggish.
+  acceleration: 1.1,
+  driftResponse: 0.48,
+  throttleResponse: 1.1,
+  handlingAssist: 0.55,
+};
 
 export const DRIFT_PRESETS: Record<'sedang' | 'pas' | 'best', DriftTune> = {
   sedang: {
     ...BASE,
-    rearGrip: 1.05,
-    frontGrip: 1.15,
-    power: 0.7,
-    maxSteer: 0.52,
-    counterSteer: 0.85,
-    angleAssist: 0.9,
-    maxAngle: 0.45,
+    rearGrip: 1.08,
+    frontGrip: 1.18,
+    power: 0.82,
+    maxSteer: 0.64,
+    counterSteer: 0.92,
+    angleAssist: 0.94,
+    maxAngle: 0.5,
     falloff: 1.25,
-    kick: 0.8,
-    steerRate: 6,
-    speedFade: 0.5,
+    kick: 0.85,
+    steerRate: 7.4,
+    speedFade: 0.34,
+    acceleration: 0.92,
+    driftResponse: 0.28,
+    throttleResponse: 0.9,
+    handlingAssist: 0.9,
   },
   pas: {
     ...BASE,
-    rearGrip: 0.92,
-    frontGrip: 1.15,
-    power: 0.95,
-    maxSteer: 0.66,
-    counterSteer: 0.6,
-    angleAssist: 0.6,
-    maxAngle: 0.72,
+    rearGrip: 0.98,
+    frontGrip: 1.18,
+    power: 1.05,
+    maxSteer: 0.74,
+    counterSteer: 0.72,
+    angleAssist: 0.72,
+    maxAngle: 0.76,
     falloff: 1.38,
     kick: 1.1,
-    steerRate: 7.5,
-    speedFade: 0.45,
+    steerRate: 8.5,
+    speedFade: 0.32,
+    acceleration: 1.12,
+    driftResponse: 0.48,
+    throttleResponse: 1.15,
+    handlingAssist: 0.72,
   },
   best: {
     ...BASE,
-    rearGrip: 0.86,
-    frontGrip: 1.2,
-    power: 1.2,
-    maxSteer: 0.86,
-    counterSteer: 0.45,
-    angleAssist: 0.4,
-    maxAngle: 0.98,
+    rearGrip: 0.88,
+    frontGrip: 1.22,
+    power: 1.24,
+    maxSteer: 0.9,
+    counterSteer: 0.55,
+    angleAssist: 0.48,
+    maxAngle: 1.05,
     falloff: 1.5,
     kick: 1.5,
-    steerRate: 9,
-    speedFade: 0.35,
+    steerRate: 10,
+    speedFade: 0.28,
+    acceleration: 1.28,
+    driftResponse: 0.88,
+    throttleResponse: 1.35,
+    handlingAssist: 0.35,
   },
 };
+
+export type HarunaPresetId = 'beginner_stable' | 'downhill_balanced' | 'pro_drift' | 'grip_fast';
+
+export interface HarunaPreset {
+  id: HarunaPresetId;
+  label: string;
+  sub: string;
+  mode: Exclude<DriftMode, 'normal' | 'rc'>;
+  setup: DriftTune;
+}
+
+/** Preset saran khusus Toyota AE86 Panda di game Haruna, bukan Sakura RC Pro. */
+export const HARUNA_PRESETS: HarunaPreset[] = [
+  {
+    id: 'beginner_stable',
+    label: 'PEMULA / STABLE',
+    sub: 'Akselerasi lembut, gas halus, counter-steer dan anti-spin kuat.',
+    mode: 'sedang',
+    setup: {
+      ...DRIFT_PRESETS.sedang,
+      acceleration: 0.95,
+      driftResponse: 0.24,
+      throttleResponse: 0.96,
+      handlingAssist: 0.94,
+      rearGrip: 1.14,
+      counterSteer: 0.95,
+      angleAssist: 0.96,
+      maxSteer: 0.67,
+      speedFade: 0.3,
+    },
+  },
+  {
+    id: 'downhill_balanced',
+    label: 'DOWNHILL / BALANCED',
+    sub: 'Setup saran untuk turunan dan lima hairpin: progresif tetapi mudah dikoreksi.',
+    mode: 'pas',
+    setup: {
+      ...DRIFT_PRESETS.pas,
+      acceleration: 1.12,
+      driftResponse: 0.42,
+      throttleResponse: 1.15,
+      handlingAssist: 0.76,
+      maxSteer: 0.76,
+      speedFade: 0.3,
+    },
+  },
+  {
+    id: 'pro_drift',
+    label: 'PRO / AGGRESSIVE DRIFT',
+    sub: 'Ekor cepat keluar, throttle tajam, dan sudut besar untuk entry hairpin.',
+    mode: 'best',
+    setup: {
+      ...DRIFT_PRESETS.best,
+      acceleration: 1.25,
+      driftResponse: 0.9,
+      throttleResponse: 1.35,
+      handlingAssist: 0.22,
+      rearGrip: 0.82,
+    },
+  },
+  {
+    id: 'grip_fast',
+    label: 'GRIP / FAST',
+    sub: 'Pace cepat dengan grip lebih kuat dan line recovery yang nyaman.',
+    mode: 'pas',
+    setup: {
+      ...DRIFT_PRESETS.pas,
+      acceleration: 1.3,
+      driftResponse: 0.15,
+      throttleResponse: 1.42,
+      handlingAssist: 0.72,
+      rearGrip: 1.16,
+      frontGrip: 1.2,
+      counterSteer: 0.82,
+      angleAssist: 0.84,
+    },
+  },
+];
+
+export type HarunaSliderKey = 'acceleration' | 'driftResponse' | 'throttleResponse' | 'handlingAssist';
+
+export interface HarunaSliderDef {
+  key: HarunaSliderKey;
+  label: string;
+  hint: string;
+  min: number;
+  max: number;
+  step: number;
+  fmt: (v: number) => string;
+}
+
+export const HARUNA_SLIDERS: HarunaSliderDef[] = [
+  {
+    key: 'acceleration',
+    label: 'Akselerasi / motor power',
+    hint: 'Kecil = lembut dan mudah dikontrol; besar = lebih cepat keluar hairpin.',
+    min: 0.65,
+    max: 1.4,
+    step: 0.01,
+    fmt: (v) => `${Math.round(v * 100)}%`,
+  },
+  {
+    key: 'driftResponse',
+    label: 'Karakter / respons drifting',
+    hint: 'Kecil = grip; besar = ekor lebih mudah lepas dan sudut lebih agresif.',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    fmt: (v) => `${Math.round(v * 100)}%`,
+  },
+  {
+    key: 'throttleResponse',
+    label: 'Kecepatan ngegas / throttle',
+    hint: 'Kecil = gas progresif; besar = input W langsung membangun tenaga.',
+    min: 0.5,
+    max: 1.5,
+    step: 0.01,
+    fmt: (v) => `${Math.round(v * 100)}%`,
+  },
+  {
+    key: 'handlingAssist',
+    label: 'Keringanan / handling assist',
+    hint: 'Menambah self-correction dan perlindungan spin tanpa menghidupkan auto-gas.',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    fmt: (v) => `${Math.round(v * 100)}%`,
+  },
+];
 
 export type SliderKey = 'rearGrip' | 'power' | 'maxSteer' | 'counterSteer' | 'maxAngle';
 
@@ -290,6 +448,10 @@ export function rcTune(rc: RcSetup): DriftTune {
     wtRate: 14 - 10 * oil,
     rollVis: 1.5 - 0.9 * spring,
     expo: 1.5,
+    acceleration: 1,
+    driftResponse: tire.mu < 0.75 ? 0.82 : tire.mu > 1 ? 0.18 : 0.55,
+    throttleResponse: 1,
+    handlingAssist: 0.3,
   };
 }
 

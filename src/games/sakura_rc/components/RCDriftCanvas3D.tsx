@@ -18,6 +18,13 @@ import {
   computeHallFrame,
 } from '../utils/aulaHall';
 import { DIORAMA_CAR, buildMenuDiorama } from '../utils/menuDiorama';
+import {
+  buildTrack as buildHarunaTrack,
+  projectGlobal as projectHarunaGlobal,
+} from '../../haruna_new/game/track';
+import { buildWorld as buildHarunaWorld } from '../../haruna_new/game/world';
+import { START_ALT as HARUNA_START_ALT } from '../../haruna_new/track/haruna';
+import { Sky as HarunaSky } from '../../haruna_new/game/sky';
 
 interface RCDriftCanvas3DProps {
   circuit: CircuitDef;
@@ -201,18 +208,26 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
     // --- 1. SCENE, CAMERA, RENDERER ---
     const MENU_MODE = isMenu;
+    const isHarunaMap = circuit.mapStyle === 'haruna';
+    // Jangan bangun terrain besar saat menu; map akan dibangun ulang ketika START ditekan.
+    const useHarunaWorld = isHarunaMap && !MENU_MODE;
+    const harunaRuntimeTrack = isHarunaMap ? buildHarunaTrack() : null;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(MENU_MODE ? '#2a1440' : '#141A26');
-    // Saat menu: kabut digeser jauh supaya diorama tidak terkena fog (balik normal saat unmount/rebuild)
+    scene.background = new THREE.Color(
+      MENU_MODE ? '#2a1440' : useHarunaWorld ? '#e6eeeb' : '#141A26'
+    );
+    // Haruna memakai kabut horizon lembut ala Art of Rally; aula tetap memakai fog volumetrik.
     scene.fog = MENU_MODE
       ? new THREE.FogExp2('#2a1440', 0.00008)
+      : useHarunaWorld
+      ? new THREE.Fog('#e6eeeb', 115, 760)
       : new THREE.FogExp2('#141A26', 0.0016);
 
     const camera = new THREE.PerspectiveCamera(
       MENU_MODE ? 48 : 46,
       container.clientWidth / container.clientHeight,
       0.1,
-      MENU_MODE ? 1200 : 350
+      MENU_MODE ? 1200 : useHarunaWorld ? 1400 : 350
     );
     if (MENU_MODE) {
       // Frame pertama langsung benar: kamera mulai di dekat diorama
@@ -243,24 +258,41 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
 
-    const hdriRenderTarget = buildProceduralHDREnv(pmremGenerator);
-    scene.environment = hdriRenderTarget.texture;
-    scene.environmentIntensity = 0.6;
+    const hdriRenderTarget = useHarunaWorld ? null : buildProceduralHDREnv(pmremGenerator);
+    if (hdriRenderTarget) {
+      scene.environment = hdriRenderTarget.texture;
+      scene.environmentIntensity = 0.6;
+    }
 
-    const ambientLight = new THREE.AmbientLight('#E8E2D8', 0.5);
+    // Haruna: daylight dingin + matahari rendah hangat, meniru pencahayaan Mt. Akina.
+    const ambientLight = new THREE.AmbientLight(
+      useHarunaWorld ? '#F1EEE8' : '#E8E2D8',
+      useHarunaWorld ? 0.78 : 0.5
+    );
     scene.add(ambientLight);
 
-    const hemiLight = new THREE.HemisphereLight('#FFF4E6', '#1E293B', 0.4);
+    const hemiLight = new THREE.HemisphereLight(
+      useHarunaWorld ? '#D6E8F5' : '#FFF4E6',
+      useHarunaWorld ? '#9C9970' : '#1E293B',
+      useHarunaWorld ? 1.05 : 0.4
+    );
     scene.add(hemiLight);
 
     // Key light: frustum ketat + mengikuti mobil pemain (bayangan tajam)
-    const mainDirLight = new THREE.DirectionalLight('#FFF1DE', 1.6);
-    mainDirLight.position.set(22, 48, 28);
+    const mainDirLight = new THREE.DirectionalLight(
+      useHarunaWorld ? '#FFF4DE' : '#FFF1DE',
+      useHarunaWorld ? 2.25 : 1.6
+    );
+    mainDirLight.position.set(
+      useHarunaWorld ? -92 : 22,
+      useHarunaWorld ? 176 : 48,
+      useHarunaWorld ? 84 : 28
+    );
     mainDirLight.castShadow = true;
     mainDirLight.shadow.mapSize.width = 2048;
     mainDirLight.shadow.mapSize.height = 2048;
     mainDirLight.shadow.camera.near = 5;
-    mainDirLight.shadow.camera.far = 140;
+    mainDirLight.shadow.camera.far = useHarunaWorld ? 300 : 140;
     const d = 30;
     mainDirLight.shadow.camera.left = -d;
     mainDirLight.shadow.camera.right = d;
@@ -270,19 +302,71 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     scene.add(mainDirLight);
     scene.add(mainDirLight.target);
 
-    const fillDirLight = new THREE.DirectionalLight('#D8C8E8', 0.35);
+    const fillDirLight = new THREE.DirectionalLight(
+      useHarunaWorld ? '#BDD7F0' : '#D8C8E8',
+      useHarunaWorld ? 0.36 : 0.35
+    );
     fillDirLight.position.set(-35, 32, -25);
     scene.add(fillDirLight);
 
-    // Sakura-sunset accent wash — warm pink dari sisi start line
-    const sakuraWash = new THREE.DirectionalLight('#F9A8D4', 0.3);
+    // Sakura-sunset accent hanya untuk arena indoor; Haruna mempertahankan palet daylight.
+    const sakuraWash = new THREE.DirectionalLight(
+      '#F9A8D4',
+      useHarunaWorld ? 0.04 : 0.3
+    );
     sakuraWash.position.set(-20, 18, 45);
     scene.add(sakuraWash);
 
-    // --- 3. GEDUNG AULA 256x168x26 ADAPTIF BOUNDS SIRKUIT (src/utils/aulaHall.ts) ---
-    const hallFrame = computeHallFrame(circuit.controlPoints);
-    const aulaBuilt = buildAulaHall(scene, circuit.accentColor, hallFrame);
+    // --- 3. MAP ENVIRONMENT ---
+    const harunaBounds = harunaRuntimeTrack?.bounds;
+    const hallFrame = useHarunaWorld && harunaBounds
+      ? {
+          width: harunaBounds.maxX - harunaBounds.minX,
+          depth: harunaBounds.maxZ - harunaBounds.minZ,
+          height: 26,
+          cx: (harunaBounds.minX + harunaBounds.maxX) / 2,
+          cz: (harunaBounds.minZ + harunaBounds.maxZ) / 2,
+        }
+      : computeHallFrame(circuit.controlPoints);
+    const aulaBuilt = useHarunaWorld
+      ? {
+          aulaGroup: new THREE.Group(),
+          rostrumRect: { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity },
+          tribunRect: { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity },
+          pitRect: { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity },
+          judgeTowerPos: new THREE.Vector3(),
+        }
+      : buildAulaHall(scene, circuit.accentColor, hallFrame);
     const aulaGroup = aulaBuilt.aulaGroup;
+
+    // Haruna road, gutters, guardrails, terrain, lake and trees — world asli tetap dipakai,
+    // hanya mobil + fisika Sakura RC Pro yang diganti di atasnya.
+    let harunaSky: HarunaSky | null = null;
+    if (useHarunaWorld && harunaRuntimeTrack) {
+      const harunaWorld = buildHarunaWorld(
+        harunaRuntimeTrack,
+        undefined,
+        circuit.trackWidth * 0.5,
+        false
+      );
+      harunaWorld.group.position.y = -HARUNA_START_ALT;
+      scene.add(harunaWorld.group);
+
+      harunaSky = new HarunaSky(harunaWorld.bounds);
+      harunaSky.apply(
+        {
+          horizon: '#E6EEEB',
+          mid: '#BDDCEC',
+          zenith: '#7DB6DF',
+          sun: '#FFF4DE',
+          glow: 0.9,
+          cloud: '#FFFFFF',
+          cloudE: '#6A7D8E',
+        },
+        [-0.42, 0.8, 0.38]
+      );
+      scene.add(harunaSky.dome, harunaSky.clouds);
+    }
 
     // --- KODE AULA LAMA DINONAKTIFKAN (diganti builder di atas) ---
     if (false) {
@@ -792,45 +876,88 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
     } // tutup if(false) aula lama
 
-    // --- 4. ULTRA-SMOOTH CENTRIPETAL CIRCUIT SPLINE, RIBBON & CONTINUOUS 3D CURB WALLS ---
-    const splinePoints = circuit.controlPoints.map(
-      ([x, z]) => new THREE.Vector3(x, 0, z)
+    // --- 4. CIRCUIT SPLINE / HARUNA ROAD CENTERLINE ---
+    const splinePoints = harunaRuntimeTrack
+      ? Array.from({ length: harunaRuntimeTrack.n }, (_, idx) =>
+          new THREE.Vector3(
+            harunaRuntimeTrack.x[idx],
+            harunaRuntimeTrack.y[idx] - HARUNA_START_ALT,
+            harunaRuntimeTrack.z[idx]
+          )
+        )
+      : circuit.controlPoints.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    // Haruna memakai centerline downhill autentik (open route); arena memakai loop tertutup.
+    const routeClosed = !isHarunaMap;
+    const rawCurve = new THREE.CatmullRomCurve3(
+      splinePoints,
+      routeClosed,
+      'centripetal',
+      isHarunaMap ? 0.2 : 0.5
     );
-    // 'centripetal' Catmull-Rom mathematically eliminates cusps, overshoots, and self-intersections!
-    const rawCurve = new THREE.CatmullRomCurve3(splinePoints, true, 'centripetal', 0.5);
 
-    // Resample & apply a 2-pass cyclic Gaussian smoothing filter so every curve is 100% silky & kink-free
-    const densePts: THREE.Vector3[] = [];
-    const denseCount = 96;
-    for (let i = 0; i < denseCount; i++) {
-      densePts.push(rawCurve.getPointAt(i / denseCount));
+    // Terapkan smoothing yang sama seperti Tokyo Grand Aula ke centerline Haruna.
+    // Batas endpoint dipertahankan supaya downhill tidak membuat sambungan palsu.
+    const densePts: THREE.Vector3[] = isHarunaMap
+      ? splinePoints.map((point) => point.clone())
+      : [];
+    const denseCount = isHarunaMap ? densePts.length : 96;
+    if (!isHarunaMap) {
+      for (let i = 0; i < denseCount; i++) {
+        densePts.push(rawCurve.getPointAt(i / denseCount));
+      }
     }
     for (let pass = 0; pass < 2; pass++) {
       const nextPts = densePts.map((_, idx) => {
-        const pPrev = densePts[(idx - 1 + denseCount) % denseCount];
+        const prevIdx = isHarunaMap
+          ? Math.max(0, idx - 1)
+          : (idx - 1 + denseCount) % denseCount;
+        const nextIdx = isHarunaMap
+          ? Math.min(denseCount - 1, idx + 1)
+          : (idx + 1) % denseCount;
+        const pPrev = densePts[prevIdx];
         const pCur = densePts[idx];
-        const pNext = densePts[(idx + 1) % denseCount];
+        const pNext = densePts[nextIdx];
+        if (isHarunaMap && (idx === 0 || idx === denseCount - 1)) {
+          return pCur.clone();
+        }
         return new THREE.Vector3(
           pPrev.x * 0.22 + pCur.x * 0.56 + pNext.x * 0.22,
-          0,
+          pPrev.y * 0.22 + pCur.y * 0.56 + pNext.y * 0.22,
           pPrev.z * 0.22 + pCur.z * 0.56 + pNext.z * 0.22
         );
       });
       for (let i = 0; i < denseCount; i++) densePts[i].copy(nextPts[i]);
     }
 
-    const trackCurve = new THREE.CatmullRomCurve3(densePts, true, 'centripetal', 0.5);
-    const trackSamples = 640;
+    const trackCurve = new THREE.CatmullRomCurve3(
+      densePts,
+      routeClosed,
+      'centripetal',
+      isHarunaMap ? 0.2 : 0.5
+    );
+    // Haruna is several kilometers long; more samples prevent faceted road edges.
+    const trackSamples = isHarunaMap ? 1600 : 640;
     const halfWidth = circuit.trackWidth * 0.5;
+    // Lift the Aula overlay above Haruna's original asphalt to prevent z-fighting
+    // and make the old surface a true underlay rather than a second drivable layer.
+    const trackSurfaceLift = isHarunaMap ? 0.14 : 0;
 
-    // Precompute smoothed closed-loop track frames (center point + smooth perpendicular normal)
+    // Precompute frames for both closed Aula loops and the open Haruna downhill.
+    // Haruna keeps an explicit endpoint so the Aula surface does not connect finish
+    // back to start with a phantom strip.
     const smoothTrackFrames: { pt: THREE.Vector3; normal: THREE.Vector3 }[] = [];
-    for (let i = 0; i < trackSamples; i++) {
-      const t = i / trackSamples;
+    const frameCount = isHarunaMap ? trackSamples + 1 : trackSamples;
+    for (let i = 0; i < frameCount; i++) {
+      const t = isHarunaMap ? i / trackSamples : i / trackSamples;
       const pt = trackCurve.getPointAt(t);
-      // Average tangent across a small window to prevent any normal jitter
-      const tPrev = (t - 0.004 + 1) % 1;
-      const tNext = (t + 0.004) % 1;
+      // Average tangent across a small window to prevent any normal jitter.
+      const edge = isHarunaMap ? 1 / trackSamples : 0.004;
+      const tPrev = isHarunaMap
+        ? Math.max(0, t - edge)
+        : (t - edge + 1) % 1;
+      const tNext = isHarunaMap
+        ? Math.min(1, t + edge)
+        : (t + edge) % 1;
       const tan = trackCurve
         .getPointAt(tNext)
         .sub(trackCurve.getPointAt(tPrev))
@@ -913,14 +1040,17 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const indices: number[] = [];
 
       for (let i = 0; i <= trackSamples; i++) {
-        const frame = smoothTrackFrames[i % trackSamples];
+        const frame = isHarunaMap
+          ? smoothTrackFrames[Math.min(i, trackSamples)]
+          : smoothTrackFrames[i % trackSamples];
         const t = i / trackSamples;
+        const y = frame.pt.y + trackSurfaceLift + yOffset;
 
         const left = frame.pt.clone().addScaledVector(frame.normal, -width * 0.5);
         const right = frame.pt.clone().addScaledVector(frame.normal, width * 0.5);
 
-        positions.push(left.x, yOffset, left.z);
-        positions.push(right.x, yOffset, right.z);
+        positions.push(left.x, y, left.z);
+        positions.push(right.x, y, right.z);
 
         uvs.push(0, t * 48);
         uvs.push(1, t * 48);
@@ -950,7 +1080,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       return mesh;
     };
 
-    // Protective Dark Rubber Sub-Mat under the entire RC Circuit
+    // Tokyo Grand Aula RC surface overlay: Haruna keeps its centerline/world,
+    // but the drivable asphalt is the same Sakura P-Tile track surface.
     const subMatMesh = buildTrackRibbon(circuit.trackWidth + 2.0, 0.015, '#090C12', 0.45, false);
     scene.add(subMatMesh);
 
@@ -1013,16 +1144,19 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
       // 4 vertices per cross-section: 0=innerBottom, 1=innerTop, 2=outerTop, 3=outerBottom
       for (let i = 0; i <= trackSamples; i++) {
-        const frame = smoothTrackFrames[i % trackSamples];
+        const frame = isHarunaMap
+          ? smoothTrackFrames[Math.min(i, trackSamples)]
+          : smoothTrackFrames[i % trackSamples];
         const v = (i / trackSamples) * 64;
+        const baseY = frame.pt.y + trackSurfaceLift + 0.02;
 
         const pIn = frame.pt.clone().addScaledVector(frame.normal, innerOff);
         const pOut = frame.pt.clone().addScaledVector(frame.normal, outerOff);
 
-        positions.push(pIn.x, 0.02, pIn.z);
-        positions.push(pIn.x, railHeight, pIn.z);
-        positions.push(pOut.x, railHeight, pOut.z);
-        positions.push(pOut.x, 0.02, pOut.z);
+        positions.push(pIn.x, baseY, pIn.z);
+        positions.push(pIn.x, baseY + railHeight, pIn.z);
+        positions.push(pOut.x, baseY + railHeight, pOut.z);
+        positions.push(pOut.x, baseY, pOut.z);
 
         uvs.push(0, v);
         uvs.push(0.33, v);
@@ -1058,15 +1192,18 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     scene.add(buildContinuousRail(halfWidth + 0.25, 0.45, 0.30, curbStripeMat));
 
     // Left & Right Continuous Sleek Dark Outer Cushion Guardrail Walls
-    scene.add(buildContinuousRail(-(halfWidth + 0.68), 0.32, 0.46, outerRetainingMat));
-    scene.add(buildContinuousRail(halfWidth + 0.68, 0.32, 0.46, outerRetainingMat));
+    // Haruna already has its native mountain guardrails; Aula keeps the extra RC wall.
+    if (!isHarunaMap) {
+      scene.add(buildContinuousRail(-(halfWidth + 0.68), 0.32, 0.46, outerRetainingMat));
+      scene.add(buildContinuousRail(halfWidth + 0.68, 0.32, 0.46, outerRetainingMat));
+    }
 
     // Start / Finish RC Telemetry Gantry Bridge + Checkerboard Start Grid
     const startPt = trackCurve.getPointAt(0);
     const startTan = trackCurve.getTangentAt(0).normalize();
     const startAngle = Math.atan2(startTan.x, startTan.z);
     const gantryGroup = new THREE.Group();
-    gantryGroup.position.set(startPt.x, 0, startPt.z);
+    gantryGroup.position.set(startPt.x, startPt.y, startPt.z);
     gantryGroup.rotation.y = startAngle;
 
     const pillarGeo = new THREE.BoxGeometry(0.65, 5.4, 0.65);
@@ -1115,7 +1252,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     });
     const startLineMesh = new THREE.Mesh(startLineGeo, startLineMat);
     startLineMesh.rotation.x = -Math.PI / 2;
-    startLineMesh.position.y = 0.046;
+    startLineMesh.position.y = trackSurfaceLift + 0.046;
 
     gantryGroup.add(leftPillar, rightPillar, topBeam, startLineMesh);
     scene.add(gantryGroup);
@@ -1186,7 +1323,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const boxMesh = new THREE.Mesh(boxGeo, boxMat);
       boxMesh.rotation.x = -Math.PI / 2;
       boxMesh.rotation.z = -tangentAngle;
-      boxMesh.position.set(worldPos.x, 0.044, worldPos.z);
+      boxMesh.position.set(worldPos.x, worldPos.y + trackSurfaceLift + 0.044, worldPos.z);
       scene.add(boxMesh);
 
       const ringGeo = new THREE.RingGeometry(cz.radius * 0.78, cz.radius, 36);
@@ -1198,7 +1335,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       });
       const ringMesh = new THREE.Mesh(ringGeo, ringMat);
       ringMesh.rotation.x = -Math.PI / 2;
-      ringMesh.position.set(worldPos.x, 0.056, worldPos.z);
+      ringMesh.position.set(worldPos.x, worldPos.y + trackSurfaceLift + 0.056, worldPos.z);
       scene.add(ringMesh);
 
       const discGeo = new THREE.CircleGeometry(cz.radius * 0.76, 32);
@@ -1209,7 +1346,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       });
       const innerDisc = new THREE.Mesh(discGeo, discMat);
       innerDisc.rotation.x = -Math.PI / 2;
-      innerDisc.position.set(worldPos.x, 0.05, worldPos.z);
+      innerDisc.position.set(worldPos.x, worldPos.y + trackSurfaceLift + 0.05, worldPos.z);
       scene.add(innerDisc);
 
       // Glowing Trackside Clipping Zone Beacon Post
@@ -1222,7 +1359,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const pillarMesh = new THREE.Mesh(beaconGeo, beaconMat);
       const edgeSign = cz.offset >= 0 ? 1 : -1;
       const postPos = pt.clone().addScaledVector(norm, edgeSign * (halfWidth + 1.15));
-      pillarMesh.position.set(postPos.x, 1.25, postPos.z);
+      pillarMesh.position.set(postPos.x, pt.y + trackSurfaceLift + 1.25, postPos.z);
       scene.add(pillarMesh);
 
       return {
@@ -1241,24 +1378,29 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
     // --- 5B. TAMAN SAKURA OTOMATIS (14 pohon, validasi jarak trek) + SPANDUK GANTUNG START ---
     const trackSamplePts: THREE.Vector3[] = [];
-    for (let i = 0; i < 240; i++) trackSamplePts.push(trackCurve.getPointAt(i / 240));
-    const sakuraGarden = buildSakuraGardenAuto(
-      scene,
-      aulaGroup,
-      hallFrame,
-      trackSamplePts,
-      halfWidth,
-      {
-        rostrum: aulaBuilt.rostrumRect,
-        tribun: aulaBuilt.tribunRect,
-        pit: aulaBuilt.pitRect,
-        judge: aulaBuilt.judgeTowerPos,
-      }
-    );
+    for (let i = 0; i < 240; i++) {
+      const t = routeClosed ? i / 240 : i / 239;
+      trackSamplePts.push(trackCurve.getPointAt(t));
+    }
+    const sakuraGarden = isHarunaMap
+      ? { swayGroups: [] as THREE.Group[], spots: [] as [number, number, number][], petals: [] as { mesh: THREE.Mesh; vy: number; swayPhase: number; swaySpeed: number; rotSpeed: number }[] }
+      : buildSakuraGardenAuto(
+          scene,
+          aulaGroup,
+          hallFrame,
+          trackSamplePts,
+          halfWidth,
+          {
+            rostrum: aulaBuilt.rostrumRect,
+            tribun: aulaBuilt.tribunRect,
+            pit: aulaBuilt.pitRect,
+            judge: aulaBuilt.judgeTowerPos,
+          }
+        );
     const sakuraSwayGroups = sakuraGarden.swayGroups;
     const sakuraSpots = sakuraGarden.spots;
     const petals = sakuraGarden.petals;
-    buildHangingStartBanners(scene, trackCurve, hallFrame.height);
+    if (!isHarunaMap) buildHangingStartBanners(scene, trackCurve, hallFrame.height);
 
     // --- 6. BUILD 1:10 RWD RC DRIFT CHASSIS + WOBBLE-FREE WHEELS + SKYLINE GT-R ---
     const createRCCarRig = (
@@ -2136,27 +2278,38 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     };
 
     // --- 8. PLAYER & PRO AI BOT PHYSICS STATE ---
-    const startPos = trackCurve.getPointAt(0.01);
-    const startTangent = trackCurve.getTangentAt(0.01).normalize();
+    // Fair starting grid: both cars share the same progress, then sit side-by-side.
+    const startGridT = 0.01;
+    const startGridOffset = circuit.trackWidth * 0.30;
+    const harunaRideHeight = isHarunaMap ? trackSurfaceLift + 0.08 : 0;
+    const startPos = trackCurve.getPointAt(startGridT);
+    const startTangent = trackCurve.getTangentAt(startGridT).normalize();
+    const startNormal = new THREE.Vector3(-startTangent.z, 0, startTangent.x);
     const initialHeading = Math.atan2(startTangent.x, startTangent.z);
 
-    const aiStartT = 0.046;
-    const aiStartPos = trackCurve.getPointAt(aiStartT);
-    const aiStartTan = trackCurve.getTangentAt(aiStartT).normalize();
+    const aiStartT = startGridT;
+    const aiStartPos = trackCurve
+      .getPointAt(aiStartT)
+      .clone()
+      .addScaledVector(startNormal, startGridOffset);
+    const aiStartTan = startTangent.clone();
     const aiInitialHeading = Math.atan2(aiStartTan.x, aiStartTan.z);
 
     const state = {
-      pos: new THREE.Vector3(startPos.x, 0, startPos.z),
+      pos: new THREE.Vector3(startPos.x, startPos.y + harunaRideHeight, startPos.z),
       vel: new THREE.Vector3(0, 0, 0),
       heading: initialHeading,
       velocityAngle: initialHeading,
       angularVel: 0,
+      raceStarted: false,
       frontSteerAngle: 0,
       rpm: 6500,
       turboActive: false,
-      lastSplineT: 0.01,
+      throttleOutput: 0,
+      lastSplineT: startGridT,
       lapCount: 1,
-      maxLaps: 3,
+      // Haruna adalah satu kali downhill; arena Sakura tetap memakai 3 lap.
+      maxLaps: isHarunaMap ? 1 : 3,
       lapStartTime: performance.now(),
       sessionScore: 0,
       comboPoints: 0,
@@ -2186,20 +2339,16 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
     // Autonomous Physics-Driven 1:10 RWD Pro Drift Bot State
     const aiState = {
-      pos: new THREE.Vector3(aiStartPos.x, 0, aiStartPos.z),
-      vel: new THREE.Vector3(
-        Math.sin(aiInitialHeading) * 14,
-        0,
-        Math.cos(aiInitialHeading) * 14
-      ),
-      speed: 14,
+      pos: new THREE.Vector3(aiStartPos.x, aiStartPos.y + harunaRideHeight, aiStartPos.z),
+      vel: new THREE.Vector3(0, 0, 0),
+      speed: 0,
       heading: aiInitialHeading,
       velocityAngle: aiInitialHeading,
       angularVel: 0,
       frontSteerAngle: 0,
       lastSplineT: aiStartT,
-      lateralOffsetTarget: 0,
-      currentLateralOffset: 0,
+      lateralOffsetTarget: startGridOffset,
+      currentLateralOffset: startGridOffset,
       smoothTargetSlip: 0,
       collisionCooldown: 0,
     };
@@ -2229,6 +2378,27 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     window.addEventListener('keyup', onKeyUp);
 
     const findClosestSplineT = (pos: THREE.Vector3) => {
+      // Haruna punya ribuan meter jalan; gunakan proyeksi segmen aslinya supaya
+      // posisi y tetap tepat di atas aspal dan tidak menembus saat hairpin.
+      if (isHarunaMap && harunaRuntimeTrack) {
+        const projected = projectHarunaGlobal(harunaRuntimeTrack, pos.x, pos.z);
+        const segmentLength =
+          harunaRuntimeTrack.dist[Math.min(projected.i + 1, harunaRuntimeTrack.n - 1)] -
+          harunaRuntimeTrack.dist[projected.i];
+        const routeDistance = harunaRuntimeTrack.dist[projected.i] + segmentLength * projected.f;
+        const routeT = THREE.MathUtils.clamp(
+          routeDistance / harunaRuntimeTrack.length,
+          0,
+          1
+        );
+        return {
+          t: routeT,
+          dist: projected.d,
+          // Follow the smoothed Aula overlay height, not the removed Haruna road.
+          height: trackCurve.getPointAt(routeT).y,
+        };
+      }
+
       let bestT = state.lastSplineT;
       let bestDistSq = Infinity;
       const searchSteps = 120;
@@ -2241,7 +2411,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           bestT = t;
         }
       }
-      return { t: bestT, dist: Math.sqrt(bestDistSq) };
+      return { t: bestT, dist: Math.sqrt(bestDistSq), height: 0 };
     };
 
     // --- 9. MAIN 60FPS SIMULATION & RENDER LOOP ---
@@ -2276,6 +2446,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           camera.fov += (48 - camera.fov) * (1 - Math.exp(-3 * dt));
           camera.updateProjectionMatrix();
         }
+        harunaSky?.follow(camera.position);
         renderer.render(scene, camera);
         return;
       }
@@ -2283,6 +2454,27 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const curTuning = tuningRef.current;
       const curMode = gameModeRef.current;
       const ext = extInputRef.current;
+      const speedFactor =
+        curTuning.speedLevel === '2x'
+          ? 2.0
+          : curTuning.speedLevel === 'sedang'
+          ? 1.35
+          : 1.0;
+
+      // Haruna/Akina adds its own feel layer without replacing Sakura RC Pro physics.
+      // Aula keeps the original constants, while the downhill setup can tune each layer.
+      const accelerationScale = isHarunaMap
+        ? THREE.MathUtils.clamp((curTuning.accelerationPower ?? 100) / 100, 0.65, 1.4)
+        : 1.0;
+      const driftResponseNorm = isHarunaMap
+        ? THREE.MathUtils.clamp((curTuning.driftResponse ?? 55) / 100, 0, 1)
+        : 0.55;
+      const throttleResponseNorm = isHarunaMap
+        ? THREE.MathUtils.clamp((curTuning.throttleResponse ?? 100) / 100, 0.5, 1.5)
+        : 1.0;
+      const handlingAssistNorm = isHarunaMap
+        ? THREE.MathUtils.clamp((curTuning.handlingAssist ?? 35) / 100, 0, 1)
+        : 0;
 
       let steerInput = ext.steer;
       if (keys['KeyA'] || keys['ArrowLeft']) steerInput += 1;
@@ -2291,24 +2483,42 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
       const manualThrottle =
         keys['KeyW'] || keys['ArrowUp'] || ext.throttle;
+      if (manualThrottle) state.raceStarted = true;
+
+      // Throttle response changes how quickly motor output builds, never whether
+      // the car is allowed to move: a W/ArrowUp/button press is still required.
+      const throttleTarget = manualThrottle ? 1 : 0;
+      if (isHarunaMap) {
+        const throttleRampRate = 5.5 + throttleResponseNorm * 7.5;
+        state.throttleOutput = THREE.MathUtils.lerp(
+          state.throttleOutput,
+          throttleTarget,
+          1 - Math.exp(-throttleRampRate * dt)
+        );
+      } else {
+        state.throttleOutput = throttleTarget;
+      }
+      const throttleDrive = manualThrottle ? state.throttleOutput : 0;
       const brakePressed =
         keys['KeyS'] || keys['ArrowDown'] || keys['Space'] || ext.brake;
       const turboPressed =
         keys['ShiftLeft'] || keys['ShiftRight'] || ext.turbo;
 
-      const throttleActive = curTuning.autoThrottle
-        ? !brakePressed
-        : manualThrottle;
+      // Keselamatan kontrol: Sakura RC Pro tidak boleh maju sendiri.
+      // AUTO-GAS hanya tuning assist, tetapi tetap membutuhkan W/tombol throttle.
+      const throttleActive = manualThrottle;
 
       const closest = findClosestSplineT(state.pos);
       const trackPt = trackCurve.getPointAt(closest.t);
       const trackTan = trackCurve.getTangentAt(closest.t).normalize();
       const trackAngle = Math.atan2(trackTan.x, trackTan.z);
 
-      // Check Lap Progression
-      if (state.lastSplineT > 0.85 && closest.t < 0.15) {
+      // Check lap / downhill finish progression.
+      const crossedStart = state.lastSplineT > 0.85 && closest.t < 0.15;
+      const reachedHarunaFinish = isHarunaMap && closest.t > 0.985;
+      if ((crossedStart || reachedHarunaFinish) && !state.sessionFinished) {
         state.clippedThisLap.clear();
-        if (curMode === 'qualifying' && state.lapCount >= state.maxLaps && !state.sessionFinished) {
+        if (curMode === 'qualifying' && state.lapCount >= state.maxLaps) {
           state.sessionFinished = true;
           const finalTotal = Math.round(
             state.sessionScore + state.comboPoints * state.comboMultiplier
@@ -2333,13 +2543,17 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             grade,
             rcCreditsEarned: Math.max(150, Math.round(finalTotal * 0.08)),
           });
-        } else {
+        } else if (!isHarunaMap) {
           state.lapCount++;
           triggerCallout(
             `LAP ${state.lapCount} // GO!`,
             'CLIPPING ZONES RESET',
             'cyan'
           );
+        } else {
+          // Non-qualifying Haruna runs stop at the bottom instead of wrapping to the lake.
+          state.sessionFinished = true;
+          triggerCallout('IKAHO FINISH!', 'HARUNA DOWNHILL COMPLETE', 'amber');
         }
       }
       state.lastSplineT = closest.t;
@@ -2347,6 +2561,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       // 3. 1:10 RWD RC DRIFT GYRO, TIRE & PRO SUSPENSION WEIGHT-TRANSFER PHYSICS
       const susp = curTuning.suspension || DEFAULT_SUSPENSION_SETUP;
 
+      // Tokyo Grand Aula and Haruna share the same RC Pro base handling constants.
+      // Haruna's optional feel layer below only adjusts acceleration, slide response,
+      // throttle ramp and recovery assist; the Sakura car/physics remain intact.
       const compoundGrip =
         curTuning.tireCompound === 'silver_dot'
           ? 1.16
@@ -2368,18 +2585,23 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       state.turboActive = isTurboEngaged;
 
       const maxSpeed =
-        22.5 * compoundGrip * rearCamberBite * (isTurboEngaged ? 1.18 : 1.0);
+        22.5 * speedFactor * compoundGrip * rearCamberBite * (isTurboEngaged ? 1.18 : 1.0);
       const accelForce =
         26.0 *
+        speedFactor *
         compoundGrip *
         rearCamberBite *
         squatBiteBoost *
+        accelerationScale *
         (isTurboEngaged ? turboFactor : 1.0);
 
       let currentSpeed = state.vel.length();
 
       if (throttleActive) {
-        currentSpeed = Math.min(maxSpeed, currentSpeed + accelForce * dt);
+        currentSpeed = Math.min(
+          maxSpeed,
+          currentSpeed + accelForce * throttleDrive * dt
+        );
       } else if (brakePressed) {
         currentSpeed = Math.max(0, currentSpeed - 32.0 * dt);
       } else {
@@ -2409,19 +2631,37 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const clutchKickBoost =
         keys['Space'] && Math.abs(steerInput) > 0.05 ? steerInput * 2.4 : 0;
 
-      const gyroDamping = -state.angularVel * (4.2 + gyroGainNorm * 4.5);
+      const gyroDamping =
+        -state.angularVel *
+        (4.2 + gyroGainNorm * 4.5 + handlingAssistNorm * 2.6);
 
       state.angularVel +=
-        (steerTurnRate * 9.5 + clutchKickBoost * 8.0 + gyroDamping) * dt;
+        (steerTurnRate * (9.5 + handlingAssistNorm * 0.9) +
+          clutchKickBoost * 8.0 +
+          gyroDamping) *
+        dt;
       state.heading = wrapAngle(state.heading + state.angularVel * dt);
 
+      // Higher drift response loosens the side bite so the car rotates into
+      // Haruna hairpins; handling assist adds stability without auto-throttle.
+      const driftGripAdjustment = isHarunaMap
+        ? -(driftResponseNorm - 0.55) * 1.3
+        : 0;
       const lateralGrip =
-        (2.1 + (1 - gyroGainNorm) * 0.6) *
+        Math.max(
+          0.85,
+          2.1 +
+            (1 - gyroGainNorm) * 0.6 +
+            driftGripAdjustment +
+            handlingAssistNorm * 0.9
+        ) *
         compoundGrip *
         (throttleActive ? 0.82 : 1.35);
 
       let angleDiff = wrapAngle(state.heading - state.velocityAngle);
-      const maxHoldableSlip = maxSteerRad * (0.88 + gyroGainNorm * 0.14);
+      const maxHoldableSlip =
+        maxSteerRad *
+        (0.88 + gyroGainNorm * 0.14 + (isHarunaMap ? driftResponseNorm * 0.2 : 0));
       if (Math.abs(angleDiff) > maxHoldableSlip) {
         const clampedSign = Math.sign(angleDiff);
         state.heading = wrapAngle(state.velocityAngle + clampedSign * maxHoldableSlip);
@@ -2433,6 +2673,12 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         state.velocityAngle + angleDiff * lateralGrip * dt
       );
 
+      if (isHarunaMap && handlingAssistNorm > 0 && Math.abs(steerInput) < 0.06) {
+        const toTrack = wrapAngle(trackAngle - state.velocityAngle);
+        state.velocityAngle = wrapAngle(
+          state.velocityAngle + toTrack * handlingAssistNorm * 0.65 * dt
+        );
+      }
       if (curTuning.autoThrottle && Math.abs(steerInput) < 0.05) {
         const toTrack = wrapAngle(trackAngle - state.velocityAngle);
         state.velocityAngle = wrapAngle(state.velocityAngle + toTrack * 1.8 * dt);
@@ -2476,6 +2722,12 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         dt * 18
       );
 
+      if (isHarunaMap) {
+        // Ikuti elevasi segmen aspal Haruna secara presisi: mobil Sakura tetap menempel
+        // pada turunan, bukan melayang atau masuk ke bawah road mesh.
+        const roadProjection = findClosestSplineT(state.pos);
+        state.pos.y = roadProjection.height + harunaRideHeight;
+      }
       playerRig.root.position.copy(state.pos);
       playerRig.root.rotation.y = state.heading;
 
@@ -2647,20 +2899,20 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       // Update Live WheelAnchors for Rear Left (lx = +0.84, lz = -1.08) and Rear Right (lx = -0.84, lz = -1.08)
       const rlContactWorld = new THREE.Vector3(
         state.pos.x + carRightX * 0.84 + carFwdX * -1.08,
-        0.04,
+        state.pos.y + 0.04,
         state.pos.z + carRightZ * 0.84 + carFwdZ * -1.08
       );
       const rrContactWorld = new THREE.Vector3(
         state.pos.x + carRightX * -0.84 + carFwdX * -1.08,
-        0.04,
+        state.pos.y + 0.04,
         state.pos.z + carRightZ * -0.84 + carFwdZ * -1.08
       );
 
-      playerWheelAnchors[0].pos.set(rlContactWorld.x, 0.35, rlContactWorld.z);
+      playerWheelAnchors[0].pos.set(rlContactWorld.x, state.pos.y + 0.35, rlContactWorld.z);
       playerWheelAnchors[0].forward.set(carFwdX, 0, carFwdZ);
       playerWheelAnchors[0].right.set(carRightX, 0, carRightZ);
 
-      playerWheelAnchors[1].pos.set(rrContactWorld.x, 0.35, rrContactWorld.z);
+      playerWheelAnchors[1].pos.set(rrContactWorld.x, state.pos.y + 0.35, rrContactWorld.z);
       playerWheelAnchors[1].forward.set(carFwdX, 0, carFwdZ);
       playerWheelAnchors[1].right.set(carRightX, 0, carRightZ);
 
@@ -3011,7 +3263,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             ? 0.92
             : 1.04;
         const aiBaseSpeed = curTuning.botPace === 'chill' ? 19.5 : 24.8;
-        const targetAiSpeed = aiBaseSpeed * cornerSlowdown * rubberBandFactor;
+        const targetAiSpeed = state.raceStarted
+          ? aiBaseSpeed * speedFactor * cornerSlowdown * rubberBandFactor
+          : 0;
 
         aiState.speed = THREE.MathUtils.lerp(aiState.speed, targetAiSpeed, dt * 5.2);
 
@@ -3122,7 +3376,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
                   .copy(ps.center)
                   .add(as.center)
                   .multiplyScalar(0.5);
-                contactPoint.y = 0.42;
+                contactPoint.y = state.pos.y + 0.42;
                 pHitOffset = ps.offset;
                 aiHitOffset = as.offset;
               }
@@ -3205,6 +3459,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         }
 
         // F. Apply AI Bot Visual Transforms, Counter-Steer, Smoke & Skidmarks
+        if (isHarunaMap) aiState.pos.y = aiClosest.height + harunaRideHeight;
         leadRig.root.position.copy(aiState.pos);
         leadRig.root.rotation.y = aiState.heading;
 
@@ -3258,12 +3513,12 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
           const aiRL = new THREE.Vector3(
             aiState.pos.x + aiRightX * 0.84 + aiFwdX * -1.08,
-            0.03,
+            aiState.pos.y + 0.03,
             aiState.pos.z + aiRightZ * 0.84 + aiFwdZ * -1.08
           );
           const aiRR = new THREE.Vector3(
             aiState.pos.x + aiRightX * -0.84 + aiFwdX * -1.08,
-            0.03,
+            aiState.pos.y + 0.03,
             aiState.pos.z + aiRightZ * -0.84 + aiFwdZ * -1.08
           );
 
@@ -3464,7 +3719,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         const lookAtTarget = state.pos
           .clone()
           .addScaledVector(state.vel, 0.18);
-        camera.lookAt(lookAtTarget.x, 0.8, lookAtTarget.z);
+        camera.lookAt(lookAtTarget.x, state.pos.y + 0.8, lookAtTarget.z);
       } else if (camMode === 'driver_stand') {
         const standPos = new THREE.Vector3(
           hallFrame.cx,
@@ -3472,7 +3727,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           hallFrame.cz + hallFrame.depth / 2 - 14
         );
         camera.position.lerp(standPos, dt * 4.0);
-        camera.lookAt(state.pos.x * 0.88, 0.6, state.pos.z * 0.88);
+        camera.lookAt(state.pos.x * 0.88, state.pos.y + 0.6, state.pos.z * 0.88);
       } else {
         const chaseOffset = new THREE.Vector3(
           -Math.sin(state.velocityAngle) * 7.4,
@@ -3492,9 +3747,15 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         camera.lookAt(lookAhead);
       }
 
-      // Key light mengikuti mobil pemain (frustum ketat = bayangan tajam)
-      mainDirLight.position.set(state.pos.x + 18, 42, state.pos.z + 24);
+      // Key light mengikuti mobil pemain. Haruna memakai arah matahari rendah barat-daya;
+      // aula memakai key-light top-down yang lebih kontras.
+      if (useHarunaWorld) {
+        mainDirLight.position.set(state.pos.x - 92, 176, state.pos.z + 84);
+      } else {
+        mainDirLight.position.set(state.pos.x + 18, 42, state.pos.z + 24);
+      }
       mainDirLight.target.position.copy(state.pos);
+      harunaSky?.follow(camera.position);
       mainDirLight.target.updateMatrixWorld();
 
       renderer.render(scene, camera);
@@ -3562,7 +3823,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', handleResize);
-      hdriRenderTarget.dispose();
+      hdriRenderTarget?.dispose();
       pmremGenerator.dispose();
       renderer.dispose();
       dioramaCarRigRef.current = null;

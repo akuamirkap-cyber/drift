@@ -1,6 +1,11 @@
 export type GameMode = 'qualifying' | 'tsuiso' | 'freedrift';
 
+export type SpeedLevel = 'normal' | 'sedang' | '2x';
+
 export type CameraMode = 'isometric_broadcast' | 'driver_stand' | 'chase_close';
+
+/** Visual/road environment used by Sakura RC Pro. */
+export type MapStyle = 'aula' | 'haruna';
 
 export type BodyShellMode = 'painted' | 'translucent' | 'naked_chassis';
 
@@ -48,8 +53,14 @@ export interface TuningSetup {
   gyroGain: number;         // 40 to 100 (%) - Counter-steer stability assist
   maxSteerAngle: number;    // 55 to 82 (deg) - High-angle Ackermann lock
   escTurboBoost: number;    // 15 to 100 (%) - High-RPM brushless turbo timing boost
+  /** Sakura RC Pro Haruna/Akina driving feel controls. */
+  accelerationPower?: number; // 65 to 140 (%) - Motor acceleration strength
+  driftResponse?: number;     // 0 to 100 (%) - Willingness to rotate/hold angle
+  throttleResponse?: number;  // 50 to 150 (%) - How quickly W builds motor output
+  handlingAssist?: number;    // 0 to 100 (%) - Extra stability and line recovery
   tireCompound: TireCompound;
-  autoThrottle: boolean;    // Hypercasual 1-hand mode: auto-maintains ideal drift throttle
+  autoThrottle: boolean;    // Assist steering only; throttle still requires W / throttle button
+  speedLevel?: SpeedLevel;  // Normal, sedang, atau 2x speed profile
   botPace?: BotPace;        // AI rival pace: 'pro' (24.8) vs 'chill' (19.5)
   soundMode?: SoundMode;    // RB26DETT Scale Sound Module vs Silky Sensored Brushless
   smokeConfig?: SmokeConfig;// 5-Stage Drift Smoke Pipeline configuration
@@ -91,6 +102,8 @@ export interface CircuitDef {
   subtitle: string;
   surfaceName: string;
   hallTheme: 'parquet_aula' | 'epoxy_hall' | 'carpet_convention';
+  /** Haruna switches Sakura RC from the indoor arena to the outdoor touge scene. */
+  mapStyle?: MapStyle;
   trackWidth: number;
   floorColor: string;
   gridColor: string;

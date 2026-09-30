@@ -7,6 +7,7 @@ import {
   GameMode,
   LiveTelemetry,
   SessionResult,
+  SpeedLevel,
   TuningSetup,
 } from './types/rcDrift';
 import {
@@ -33,8 +34,15 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
     gyroGain: 82,
     maxSteerAngle: 76,
     escTurboBoost: 78,
+    // Haruna/Akina feel controls: Sakura RC Pro remains manual and still needs W.
+    accelerationPower: 100,
+    driftResponse: 55,
+    throttleResponse: 100,
+    handlingAssist: 35,
     tireCompound: 'hdpe_ptile',
-    autoThrottle: true,
+    // Gas harus selalu diberi lewat W / tombol throttle; tidak auto-maju saat idle.
+    autoThrottle: false,
+    speedLevel: 'normal',
     soundMode: 'rb26_soundbox',
     smokeConfig: DEFAULT_SMOKE_CONFIG,
     suspension: DEFAULT_SUSPENSION_SETUP,
@@ -201,6 +209,13 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
     setSessionResult(null);
   };
 
+  // Haruna opens directly on the downhill setup so its acceleration/drift controls
+  // are immediately discoverable; Aula keeps the original suspension entry point.
+  const handleOpenPitBench = () => {
+    setPitBenchTab(circuit.mapStyle === 'haruna' ? 'tuning' : 'suspension');
+    setIsPitBenchOpen(true);
+  };
+
   return (
     <main
       onPointerDown={() => rcSound.init()}
@@ -248,10 +263,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
           onToggleMute={handleToggleMute}
           rcCredits={rcCredits}
           onStart={handleStartFromMenu}
-          onOpenSetup={() => {
-            setPitBenchTab('suspension');
-            setIsPitBenchOpen(true);
-          }}
+          onOpenSetup={handleOpenPitBench}
           onOpenCameraFx={() => {
             setPitBenchTab('smoke');
             setIsPitBenchOpen(true);
@@ -267,6 +279,10 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         onSelectCircuit={handleSelectCircuit}
         gameMode={gameMode}
         onSelectGameMode={handleSelectGameMode}
+        speedLevel={tuning.speedLevel ?? 'normal'}
+        onChangeSpeedLevel={(level: SpeedLevel) =>
+          setTuning((prev) => ({ ...prev, speedLevel: level }))
+        }
         cameraMode={cameraMode}
         onCycleCamera={handleCycleCamera}
         bodyShellMode={customization.bodyShellMode}
@@ -291,7 +307,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         rcCredits={rcCredits}
         isMuted={isMuted}
         onToggleMute={handleToggleMute}
-        onOpenPitBench={() => setIsPitBenchOpen(true)}
+        onOpenPitBench={handleOpenPitBench}
         onResetRun={handleResetRun}
         externalSteer={externalSteer}
         onChangeExternalSteer={(val) => {
@@ -322,6 +338,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         onChangeTuning={setTuning}
         customization={customization}
         onChangeCustomization={setCustomization}
+        isHarunaMap={circuit.mapStyle === 'haruna'}
         initialTab={pitBenchTab}
       />
 
@@ -344,7 +361,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         onReplay={handleResetRun}
         onOpenPitBench={() => {
           setSessionResult(null);
-          setIsPitBenchOpen(true);
+          handleOpenPitBench();
         }}
       />
 
