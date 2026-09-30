@@ -18,7 +18,10 @@ import {
   computeHallFrame,
 } from '../utils/aulaHall';
 import { DIORAMA_CAR, buildMenuDiorama } from '../utils/menuDiorama';
-import { buildTrack as buildHarunaTrack } from '../../haruna_new/game/track';
+import {
+  buildTrack as buildHarunaTrack,
+  projectGlobal as projectHarunaGlobal,
+} from '../../haruna_new/game/track';
 import { buildWorld as buildHarunaWorld } from '../../haruna_new/game/world';
 import { START_ALT as HARUNA_START_ALT } from '../../haruna_new/track/haruna';
 import { Sky as HarunaSky } from '../../haruna_new/game/sky';
@@ -870,17 +873,13 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
     // --- 4. CIRCUIT SPLINE / HARUNA ROAD CENTERLINE ---
     const splinePoints = harunaRuntimeTrack
-      ? Array.from({ length: Math.min(260, harunaRuntimeTrack.n) }, (_, i) => {
-          const idx = Math.min(
-            harunaRuntimeTrack.n - 1,
-            Math.round((i / (Math.min(260, harunaRuntimeTrack.n) - 1)) * (harunaRuntimeTrack.n - 1))
-          );
-          return new THREE.Vector3(
+      ? Array.from({ length: harunaRuntimeTrack.n }, (_, idx) =>
+          new THREE.Vector3(
             harunaRuntimeTrack.x[idx],
             harunaRuntimeTrack.y[idx] - HARUNA_START_ALT,
             harunaRuntimeTrack.z[idx]
-          );
-        })
+          )
+        )
       : circuit.controlPoints.map(([x, z]) => new THREE.Vector3(x, 0, z));
     // Haruna memakai centerline downhill autentik (open route); arena memakai loop tertutup.
     const routeClosed = !isHarunaMap;
@@ -893,11 +892,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
     // Smoothing hanya untuk arena. Jalan Haruna dipertahankan supaya gutter/guardrail
     // dari world tetap tepat berada di bawah mobil Sakura RC.
-    const densePts: THREE.Vector3[] = [];
-    const denseCount = isHarunaMap ? 520 : 96;
-    for (let i = 0; i < denseCount; i++) {
-      const t = routeClosed ? i / denseCount : i / (denseCount - 1);
-      densePts.push(rawCurve.getPointAt(t));
+    const densePts: THREE.Vector3[] = isHarunaMap
+      ? splinePoints.map((point) => point.clone())
+      : [];
+    const denseCount = isHarunaMap ? densePts.length : 96;
+    if (!isHarunaMap) {
+      for (let i = 0; i < denseCount; i++) {
+        densePts.push(rawCurve.getPointAt(i / denseCount));
+      }
     }
     if (!isHarunaMap) {
       for (let pass = 0; pass < 2; pass++) {
@@ -2338,6 +2340,21 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     window.addEventListener('keyup', onKeyUp);
 
     const findClosestSplineT = (pos: THREE.Vector3) => {
+      // Haruna punya ribuan meter jalan; gunakan proyeksi segmen aslinya supaya
+      // posisi y tetap tepat di atas aspal dan tidak menembus saat hairpin.
+      if (isHarunaMap && harunaRuntimeTrack) {
+        const projected = projectHarunaGlobal(harunaRuntimeTrack, pos.x, pos.z);
+        const segmentLength =
+          harunaRuntimeTrack.dist[Math.min(projected.i + 1, harunaRuntimeTrack.n - 1)] -
+          harunaRuntimeTrack.dist[projected.i];
+        const routeDistance = harunaRuntimeTrack.dist[projected.i] + segmentLength * projected.f;
+        return {
+          t: THREE.MathUtils.clamp(routeDistance / harunaRuntimeTrack.length, 0, 1),
+          dist: projected.d,
+          height: projected.h - HARUNA_START_ALT,
+        };
+      }
+
       let bestT = state.lastSplineT;
       let bestDistSq = Infinity;
       const searchSteps = 120;
@@ -2350,7 +2367,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           bestT = t;
         }
       }
-      return { t: bestT, dist: Math.sqrt(bestDistSq) };
+      return { t: bestT, dist: Math.sqrt(bestDistSq), height: 0 };
     };
 
     // --- 9. MAIN 60FPS SIMULATION & RENDER LOOP ---
@@ -2406,9 +2423,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const turboPressed =
         keys['ShiftLeft'] || keys['ShiftRight'] || ext.turbo;
 
-      const throttleActive = curTuning.autoThrottle
-        ? !brakePressed
-        : manualThrottle;
+      // Keselamatan kontrol: Sakura RC Pro tidak boleh maju sendiri.
+      // AUTO-GAS hanya tuning assist, tetapi tetap membutuhkan W/tombol throttle.
+      const throttleActive = manualThrottle;
 
       const closest = findClosestSplineT(state.pos);
       const trackPt = trackCurve.getPointAt(closest.t);
@@ -2593,9 +2610,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       );
 
       if (isHarunaMap) {
-        // Ikuti elevasi jalan Haruna: mobil Sakura tetap menempel pada turunan, bukan melayang di y=0.
-        const roadT = findClosestSplineT(state.pos).t;
-        state.pos.y = trackCurve.getPointAt(roadT).y;
+        // Ikuti elevasi segmen aspal Haruna secara presisi: mobil Sakura tetap menempel
+        // pada turunan, bukan melayang atau masuk ke bawah road mesh.
+        const roadProjection = findClosestSplineT(state.pos);
+        state.pos.y = roadProjection.height;
       }
       playerRig.root.position.copy(state.pos);
       playerRig.root.rotation.y = state.heading;
@@ -3326,7 +3344,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         }
 
         // F. Apply AI Bot Visual Transforms, Counter-Steer, Smoke & Skidmarks
-        if (isHarunaMap) aiState.pos.y = aiTrackPt.y;
+        if (isHarunaMap) aiState.pos.y = aiClosest.height;
         leadRig.root.position.copy(aiState.pos);
         leadRig.root.rotation.y = aiState.heading;
 

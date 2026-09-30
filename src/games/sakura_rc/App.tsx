@@ -34,7 +34,8 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
     maxSteerAngle: 76,
     escTurboBoost: 78,
     tireCompound: 'hdpe_ptile',
-    autoThrottle: true,
+    // Gas harus selalu diberi lewat W / tombol throttle; tidak auto-maju saat idle.
+    autoThrottle: false,
     soundMode: 'rb26_soundbox',
     smokeConfig: DEFAULT_SMOKE_CONFIG,
     suspension: DEFAULT_SUSPENSION_SETUP,
