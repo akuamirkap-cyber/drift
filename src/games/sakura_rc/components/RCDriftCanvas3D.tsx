@@ -929,6 +929,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     );
     const trackSamples = 640;
     const halfWidth = circuit.trackWidth * 0.5;
+    // Lift the Aula overlay above Haruna's original asphalt to prevent z-fighting
+    // and make the old surface a true underlay rather than a second drivable layer.
+    const trackSurfaceLift = isHarunaMap ? 0.14 : 0;
 
     // Precompute frames for both closed Aula loops and the open Haruna downhill.
     // Haruna keeps an explicit endpoint so the Aula surface does not connect finish
@@ -1032,7 +1035,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           ? smoothTrackFrames[Math.min(i, trackSamples)]
           : smoothTrackFrames[i % trackSamples];
         const t = i / trackSamples;
-        const y = frame.pt.y + yOffset;
+        const y = frame.pt.y + trackSurfaceLift + yOffset;
 
         const left = frame.pt.clone().addScaledVector(frame.normal, -width * 0.5);
         const right = frame.pt.clone().addScaledVector(frame.normal, width * 0.5);
@@ -1136,7 +1139,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           ? smoothTrackFrames[Math.min(i, trackSamples)]
           : smoothTrackFrames[i % trackSamples];
         const v = (i / trackSamples) * 64;
-        const baseY = frame.pt.y + 0.02;
+        const baseY = frame.pt.y + trackSurfaceLift + 0.02;
 
         const pIn = frame.pt.clone().addScaledVector(frame.normal, innerOff);
         const pOut = frame.pt.clone().addScaledVector(frame.normal, outerOff);
@@ -1240,7 +1243,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     });
     const startLineMesh = new THREE.Mesh(startLineGeo, startLineMat);
     startLineMesh.rotation.x = -Math.PI / 2;
-    startLineMesh.position.y = 0.046;
+    startLineMesh.position.y = trackSurfaceLift + 0.046;
 
     gantryGroup.add(leftPillar, rightPillar, topBeam, startLineMesh);
     scene.add(gantryGroup);
@@ -1311,7 +1314,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const boxMesh = new THREE.Mesh(boxGeo, boxMat);
       boxMesh.rotation.x = -Math.PI / 2;
       boxMesh.rotation.z = -tangentAngle;
-      boxMesh.position.set(worldPos.x, worldPos.y + 0.044, worldPos.z);
+      boxMesh.position.set(worldPos.x, worldPos.y + trackSurfaceLift + 0.044, worldPos.z);
       scene.add(boxMesh);
 
       const ringGeo = new THREE.RingGeometry(cz.radius * 0.78, cz.radius, 36);
@@ -1323,7 +1326,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       });
       const ringMesh = new THREE.Mesh(ringGeo, ringMat);
       ringMesh.rotation.x = -Math.PI / 2;
-      ringMesh.position.set(worldPos.x, worldPos.y + 0.056, worldPos.z);
+      ringMesh.position.set(worldPos.x, worldPos.y + trackSurfaceLift + 0.056, worldPos.z);
       scene.add(ringMesh);
 
       const discGeo = new THREE.CircleGeometry(cz.radius * 0.76, 32);
@@ -1334,7 +1337,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       });
       const innerDisc = new THREE.Mesh(discGeo, discMat);
       innerDisc.rotation.x = -Math.PI / 2;
-      innerDisc.position.set(worldPos.x, worldPos.y + 0.05, worldPos.z);
+      innerDisc.position.set(worldPos.x, worldPos.y + trackSurfaceLift + 0.05, worldPos.z);
       scene.add(innerDisc);
 
       // Glowing Trackside Clipping Zone Beacon Post
@@ -1347,7 +1350,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const pillarMesh = new THREE.Mesh(beaconGeo, beaconMat);
       const edgeSign = cz.offset >= 0 ? 1 : -1;
       const postPos = pt.clone().addScaledVector(norm, edgeSign * (halfWidth + 1.15));
-      pillarMesh.position.set(postPos.x, pt.y + 1.25, postPos.z);
+      pillarMesh.position.set(postPos.x, pt.y + trackSurfaceLift + 1.25, postPos.z);
       scene.add(pillarMesh);
 
       return {
@@ -2269,7 +2272,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     // Fair starting grid: both cars share the same progress, then sit side-by-side.
     const startGridT = 0.01;
     const startGridOffset = circuit.trackWidth * 0.30;
-    const harunaRideHeight = isHarunaMap ? 0.08 : 0;
+    const harunaRideHeight = isHarunaMap ? trackSurfaceLift + 0.08 : 0;
     const startPos = trackCurve.getPointAt(startGridT);
     const startTangent = trackCurve.getTangentAt(startGridT).normalize();
     const startNormal = new THREE.Vector3(-startTangent.z, 0, startTangent.x);
