@@ -2480,6 +2480,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       // 3. 1:10 RWD RC DRIFT GYRO, TIRE & PRO SUSPENSION WEIGHT-TRANSFER PHYSICS
       const susp = curTuning.suspension || DEFAULT_SUSPENSION_SETUP;
 
+      // Material aspal sendiri hanya visual. Profil ini membuat permukaan Haruna
+      // terasa konsisten dengan Tokyo Grand Aula: grip samping sedikit lebih kuat,
+      // yaw lebih teredam, dan input setir lebih halus di hairpin sempit.
+      const harunaSurfaceGrip = isHarunaMap ? 1.08 : 1.0;
+      const harunaStability = isHarunaMap ? 1.12 : 1.0;
+      const harunaSteerResponse = isHarunaMap ? 0.88 : 1.0;
+      // Tire compound controls speed/acceleration; map surface grip controls only
+      // lateral stability, so Haruna does not get an artificial top-speed boost.
       const compoundGrip =
         curTuning.tireCompound === 'silver_dot'
           ? 1.16
@@ -2536,13 +2544,15 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const steerTurnRate =
         steerInput *
         3.5 *
+        harunaSteerResponse *
         frontDiveTurnBoost *
         ifsTurnBoost *
         (0.65 + 0.35 * Math.min(1, currentSpeed / 8));
       const clutchKickBoost =
         keys['Space'] && Math.abs(steerInput) > 0.05 ? steerInput * 2.4 : 0;
 
-      const gyroDamping = -state.angularVel * (4.2 + gyroGainNorm * 4.5);
+      const gyroDamping =
+        -state.angularVel * (4.2 + gyroGainNorm * 4.5) * harunaStability;
 
       state.angularVel +=
         (steerTurnRate * 9.5 + clutchKickBoost * 8.0 + gyroDamping) * dt;
@@ -2551,6 +2561,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const lateralGrip =
         (2.1 + (1 - gyroGainNorm) * 0.6) *
         compoundGrip *
+        harunaSurfaceGrip *
+        harunaStability *
         (throttleActive ? 0.82 : 1.35);
 
       let angleDiff = wrapAngle(state.heading - state.velocityAngle);
