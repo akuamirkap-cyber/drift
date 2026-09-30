@@ -10,7 +10,10 @@ import {
   DRIFT_ORDER,
   DRIFT_STORE_KEY,
   DEFAULT_RC,
+  HARUNA_PRESETS,
   cloneTune,
+  type HarunaPresetId,
+  type HarunaSliderKey,
   type SliderKey,
   type RcSetup,
 } from './drift';
@@ -385,6 +388,18 @@ export class Game {
 
   setDriftParam(key: SliderKey, value: number) {
     this.car.tune[key] = value;
+    this.saveDrift();
+  }
+
+  setHarunaParam(key: HarunaSliderKey, value: number) {
+    this.car.tune[key] = value;
+    this.saveDrift();
+  }
+
+  applyHarunaPreset(id: HarunaPresetId) {
+    const preset = HARUNA_PRESETS.find((p) => p.id === id);
+    if (!preset) return;
+    this.car.setDrift(preset.mode, { ...preset.setup });
     this.saveDrift();
   }
 
