@@ -895,8 +895,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       isHarunaMap ? 0.2 : 0.5
     );
 
-    // Smoothing hanya untuk arena. Jalan Haruna dipertahankan supaya gutter/guardrail
-    // dari world tetap tepat berada di bawah mobil Sakura RC.
+    // Terapkan smoothing yang sama seperti Tokyo Grand Aula ke centerline Haruna.
+    // Batas endpoint dipertahankan supaya downhill tidak membuat sambungan palsu.
     const densePts: THREE.Vector3[] = isHarunaMap
       ? splinePoints.map((point) => point.clone())
       : [];
@@ -906,20 +906,27 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         densePts.push(rawCurve.getPointAt(i / denseCount));
       }
     }
-    if (!isHarunaMap) {
-      for (let pass = 0; pass < 2; pass++) {
-        const nextPts = densePts.map((_, idx) => {
-          const pPrev = densePts[(idx - 1 + denseCount) % denseCount];
-          const pCur = densePts[idx];
-          const pNext = densePts[(idx + 1) % denseCount];
-          return new THREE.Vector3(
-            pPrev.x * 0.22 + pCur.x * 0.56 + pNext.x * 0.22,
-            0,
-            pPrev.z * 0.22 + pCur.z * 0.56 + pNext.z * 0.22
-          );
-        });
-        for (let i = 0; i < denseCount; i++) densePts[i].copy(nextPts[i]);
-      }
+    for (let pass = 0; pass < 2; pass++) {
+      const nextPts = densePts.map((_, idx) => {
+        const prevIdx = isHarunaMap
+          ? Math.max(0, idx - 1)
+          : (idx - 1 + denseCount) % denseCount;
+        const nextIdx = isHarunaMap
+          ? Math.min(denseCount - 1, idx + 1)
+          : (idx + 1) % denseCount;
+        const pPrev = densePts[prevIdx];
+        const pCur = densePts[idx];
+        const pNext = densePts[nextIdx];
+        if (isHarunaMap && (idx === 0 || idx === denseCount - 1)) {
+          return pCur.clone();
+        }
+        return new THREE.Vector3(
+          pPrev.x * 0.22 + pCur.x * 0.56 + pNext.x * 0.22,
+          pPrev.y * 0.22 + pCur.y * 0.56 + pNext.y * 0.22,
+          pPrev.z * 0.22 + pCur.z * 0.56 + pNext.z * 0.22
+        );
+      });
+      for (let i = 0; i < denseCount; i++) densePts[i].copy(nextPts[i]);
     }
 
     const trackCurve = new THREE.CatmullRomCurve3(
@@ -928,7 +935,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       'centripetal',
       isHarunaMap ? 0.2 : 0.5
     );
-    const trackSamples = 640;
+    // Haruna is several kilometers long; more samples prevent faceted road edges.
+    const trackSamples = isHarunaMap ? 1600 : 640;
     const halfWidth = circuit.trackWidth * 0.5;
     // Lift the Aula overlay above Haruna's original asphalt to prevent z-fighting
     // and make the old surface a true underlay rather than a second drivable layer.
@@ -2377,10 +2385,16 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           harunaRuntimeTrack.dist[Math.min(projected.i + 1, harunaRuntimeTrack.n - 1)] -
           harunaRuntimeTrack.dist[projected.i];
         const routeDistance = harunaRuntimeTrack.dist[projected.i] + segmentLength * projected.f;
+        const routeT = THREE.MathUtils.clamp(
+          routeDistance / harunaRuntimeTrack.length,
+          0,
+          1
+        );
         return {
-          t: THREE.MathUtils.clamp(routeDistance / harunaRuntimeTrack.length, 0, 1),
+          t: routeT,
           dist: projected.d,
-          height: projected.h - HARUNA_START_ALT,
+          // Follow the smoothed Aula overlay height, not the removed Haruna road.
+          height: trackCurve.getPointAt(routeT).y,
         };
       }
 
