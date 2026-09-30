@@ -127,9 +127,9 @@ interface BotDef {
   skill: number;
 }
 const BOT_DEFS: BotDef[] = [
-  { name: 'Takeshi (FD)', color: '#ff3b30', lane: 1.9, aggression: 0.85, skill: 0.9 }, // kanan depan
-  { name: 'Yuki (FC)', color: '#4a90e2', lane: -1.9, aggression: 0.7, skill: 0.75 }, // kiri belakang
-  { name: 'Shinji (R32)', color: '#f5c518', lane: 1.9, aggression: 0.9, skill: 0.65 }, // kanan belakang
+  { name: 'Takeshi (FD)', color: '#ff3b30', lane: 1.9, aggression: 0.95, skill: 0.95 }, // kanan depan - paling jago
+  { name: 'Yuki (FC)', color: '#4a90e2', lane: -1.9, aggression: 0.85, skill: 0.9 }, // kiri belakang - jago
+  { name: 'Shinji (R32)', color: '#f5c518', lane: 1.9, aggression: 0.9, skill: 0.88 }, // kanan belakang - jago
 ];
 
 interface BotState {
@@ -306,12 +306,36 @@ export class Game {
     skid.frustumCulled = false;
     this.scene.add(skid);
 
-    // bots init
+    // bots init - BIKIN RINGAN & KENCANG BIAR GA BODOH
     for (let i = 0; i < BOT_COUNT; i++) {
       const def = BOT_DEFS[i];
       const botCar = new Car({ color: def.color, name: def.name, isBot: true });
-      // bot pakai engine sedang biar seimbang
-      botCar.setDrift('sedang', cloneTune('sedang'));
+      // bot pakai engine BEST tapi dimodif biar ringan & agresif (jangan sedang yang lemot)
+      const base = cloneTune('best');
+      // modif: power lebih besar, grip depan tinggi biar belok tajam, belakang sedikit licin buat drift, steer lebar
+      const botTune = {
+        ...base,
+        power: 1.35 + def.aggression * 0.2, // 1.35-1.55 (lebih kencang dari player sedang 0.7)
+        rearGrip: 0.88, // licin pas buat drift tapi gak spin
+        frontGrip: 1.25, // nempel biar belok enak
+        maxSteer: 0.82,
+        counterSteer: 0.55,
+        angleAssist: 0.5,
+        maxAngle: 0.92,
+        kick: 1.4,
+        steerRate: 12, // responsif
+        speedFade: 0.3,
+        // RC params tetap
+        gyro: 0.35 + def.skill * 0.2,
+        turbo: 0.6,
+        wtGain: 0.9,
+        wtRate: 12,
+        rollVis: 1.2,
+        expo: 1.2,
+      };
+      botCar.setDrift('best', botTune as any);
+      // bikin enteng: set thr awal 1 biar langsung gas
+      (botCar as any).thr = 1;
       this.scene.add(botCar.root);
       this.bots.push({
         car: botCar,
@@ -400,11 +424,19 @@ export class Game {
       b.car.y = g.y;
       b.car.heading = g.heading;
       b.car.hint = g.idx;
-      b.car.vx = 0; b.car.vz = 0; b.car.yawRate = 0;
+      // KASIH DORONGAN AWAL BIAR GA BERAT
+      const fwdX = Math.sin(g.heading);
+      const fwdZ = Math.cos(g.heading);
+      const initSpeed = 8 + i * 1.5; // m/s awal biar langsung jalan
+      b.car.vx = fwdX * initSpeed;
+      b.car.vz = fwdZ * initSpeed;
+      b.car.vF = initSpeed;
+      b.car.yawRate = 0;
+      (b.car as any).thr = 1;
       b.maxProgress = g.idx;
       b.finished = false;
       b.finishTime = null;
-      b.targetLane = g.lateral;
+      b.targetLane = g.lateral * 0.5; // lebih ke tengah biar gak keluar
       b.car.syncVisual(0);
     }
   }
@@ -572,11 +604,11 @@ export class Game {
   private botInput(bot: BotState, dt: number): CarInput {
     const track = this.track;
     const car = bot.car;
-    // wobble for human-like
+    // wobble lebih kecil biar gak keluar track
     bot.wobbleT += dt;
-    if (bot.wobbleT > 1.2) { bot.wobbleT = 0; bot.wobble = (Math.random() - 0.5) * (1 - bot.def.skill) * 1.5; }
-    const lane = bot.targetLane + bot.wobble * 0.5;
-    const look = Math.round(12 + Math.abs(car.vF) * 0.6 * (0.7 + bot.def.skill * 0.5));
+    if (bot.wobbleT > 1.0) { bot.wobbleT = 0; bot.wobble = (Math.random() - 0.5) * (1 - bot.def.skill) * 0.6; }
+    const lane = bot.targetLane * 0.6 + bot.wobble * 0.3; // lane dikecilin biar di tengah, gak di pinggir banget
+    const look = Math.round(18 + Math.abs(car.vF) * 0.8 * (0.8 + bot.def.skill * 0.4));
     const targetIdx = Math.min(track.n - 1, car.proj.i + look);
     const tx = track.x[targetIdx] + track.rx[targetIdx] * lane;
     const tz = track.z[targetIdx] + track.rz[targetIdx] * lane;
@@ -586,41 +618,64 @@ export class Game {
     let err = desired - car.heading;
     while (err > Math.PI) err -= Math.PI * 2;
     while (err < -Math.PI) err += Math.PI * 2;
-    let steer = err * (1.6 + bot.def.skill * 1.2);
-    // if drifting, steer based on velocity direction
-    if (car.drifting && Math.abs(car.vF) > 6) {
+    let steer = err * (2.2 + bot.def.skill * 1.5); // lebih responsif
+    if (car.drifting && Math.abs(car.vF) > 5) {
       const velHead = Math.atan2(car.vx, car.vz);
       let verr = desired - velHead;
       while (verr > Math.PI) verr -= Math.PI * 2;
       while (verr < -Math.PI) verr += Math.PI * 2;
-      steer = verr * 2.0 + err * 0.5;
+      steer = verr * 2.4 + err * 0.7;
     }
     steer = Math.max(-1, Math.min(1, steer));
 
-    // curvature ahead
-    const nearIdx = Math.min(track.n - 1, car.proj.i + 5);
-    const farIdx = Math.min(track.n - 1, car.proj.i + 25);
+    // curvature ahead - lebih toleran biar gak ngerem terus
+    const nearIdx = Math.min(track.n - 1, car.proj.i + 8);
+    const farIdx = Math.min(track.n - 1, car.proj.i + 30);
     const crossNear = track.tx[car.proj.i] * track.tz[nearIdx] - track.tz[car.proj.i] * track.tx[nearIdx];
     const curvNear = Math.abs(Math.asin(Math.max(-1, Math.min(1, crossNear))));
     const crossFar = track.tx[car.proj.i] * track.tz[farIdx] - track.tz[car.proj.i] * track.tx[farIdx];
     const curvFar = Math.abs(Math.asin(Math.max(-1, Math.min(1, crossFar))));
-    const corner = Math.max(curvNear, curvFar * 0.7);
+    const corner = Math.max(curvNear, curvFar * 0.6);
 
     let throttle = 1;
     let brake = 0;
     const speed = Math.abs(car.vF) * 3.6;
-    if (corner > 0.6 && speed > 70) { throttle = 0.15; brake = 0.3; }
-    else if (corner > 0.35 && speed > 95) { throttle = 0.5; }
+    // JANGAN TERLALU SERING NGEREM - bikin enteng
+    if (corner > 0.75 && speed > 110) { throttle = 0.4; brake = 0.2; }
+    else if (corner > 0.5 && speed > 135) { throttle = 0.7; }
+    else if (corner > 0.3 && speed > 155) { throttle = 0.85; }
+
+    // STUCK RECOVERY: kalau pelan banget >1 detik, gaspol + steer random
+    const lowSpeed = Math.abs(car.vF) < 2.5;
+    if (lowSpeed) {
+      (bot as any).stuckTime = ((bot as any).stuckTime || 0) + dt;
+      if ((bot as any).stuckTime > 0.8) {
+        throttle = 1;
+        brake = 0;
+        steer = (Math.random() - 0.5) * 0.5; // coba keluar
+        if ((bot as any).stuckTime > 2) {
+          // teleport sedikit ke depan biar gak stuck selamanya
+          const fwdIdx = Math.min(track.n - 1, car.proj.i + 5);
+          car.x = track.x[fwdIdx] + track.rx[fwdIdx] * lane;
+          car.z = track.z[fwdIdx] + track.rz[fwdIdx] * lane;
+          car.y = track.y[fwdIdx];
+          car.vx *= 0.5; car.vz *= 0.5;
+          (bot as any).stuckTime = 0;
+        }
+      }
+    } else {
+      (bot as any).stuckTime = 0;
+    }
 
     bot.hbCooldown -= dt;
     if (bot.hbTimer > 0) bot.hbTimer -= dt;
-    else if (bot.hbCooldown <= 0 && corner > 0.35 - bot.def.aggression * 0.1 && Math.abs(car.vF) > 9 && Math.abs(err) > 0.15) {
-      bot.hbTimer = 0.18 + bot.def.aggression * 0.22;
-      bot.hbCooldown = 0.9 + (1 - bot.def.aggression) * 0.8;
+    else if (bot.hbCooldown <= 0 && corner > 0.45 && Math.abs(car.vF) > 12 && Math.abs(err) > 0.2) {
+      bot.hbTimer = 0.15 + bot.def.aggression * 0.15; // handbrake lebih pendek biar gak spin
+      bot.hbCooldown = 0.7 + (1 - bot.def.aggression) * 0.5;
     }
-    if (Math.abs(car.slipBeta) > 0.9) bot.hbTimer = 0;
+    if (Math.abs(car.slipBeta) > 1.0) bot.hbTimer = 0;
 
-    return { throttle: this.phase === 'racing' ? throttle : 0, brake, steer, handbrake: this.phase === 'racing' && bot.hbTimer > 0 };
+    return { throttle: this.phase === 'racing' ? throttle : (this.phase === 'countdown' ? 0.8 : 0), brake, steer, handbrake: this.phase === 'racing' && bot.hbTimer > 0 };
   }
 
   private loop = () => {

@@ -387,6 +387,8 @@ export class Car {
   //  ENGINE LAMA (arcade) — tidak diubah
   // ===================================================================================
   private dynamicsNormal(dt: number, inp: CarInput, track: Track, world: World, grip: number) {
+    const isBotN = this.isBot;
+    const powerMulN = isBotN ? 1.5 : 1.0;
     let fx = Math.sin(this.heading);
     let fz = Math.cos(this.heading);
     let rx = -fz;
@@ -415,7 +417,7 @@ export class Car {
 
     // --- longitudinal ---
     let a = 0;
-    const engine = 7.8 * Math.max(0, 1 - (vF / TOP) ** 2) * (this.onRoad ? 1 : 0.72);
+    const engine = 7.8 * powerMulN * Math.max(0, 1 - (vF / TOP) ** 2) * (this.onRoad ? 1 : (isBotN ? 0.9 : 0.72));
     if (inp.throttle > 0) a += engine * inp.throttle;
     if (inp.brake > 0) {
       if (vF > 0.6) a -= 13 * inp.brake * grip;
@@ -464,6 +466,20 @@ export class Car {
   private dynamicsDrift(dt: number, inp: CarInput, track: Track, world: World, surface: number) {
     const T = this.tune;
     const rc = this.driftMode === 'rc';
+    const isBot = this.isBot;
+    // BOT & PLAYER SEDANG RINGAN: biar gak berat
+    let massMul = 1.0;
+    let powerMul = 1.0;
+    if (isBot) {
+      massMul = 0.68;
+      powerMul = 1.45;
+    } else if (this.driftMode === 'sedang') {
+      massMul = 0.82;
+      powerMul = 1.12;
+    } else if (this.driftMode === 'rc') {
+      massMul = 0.78;
+      powerMul = 1.08;
+    }
 
     // kemiringan jalan (gravitasi) — dihitung sekali per pemanggilan
     const f0x = Math.sin(this.heading);
@@ -543,9 +559,10 @@ export class Car {
       this.steerAngle = delta;
 
       // --- perpindahan beban longitudinal (besar: spring lunak; laju: oli damper) ---
-      const dN = (MASS * this.axS * CG_HEIGHT * T.wtGain) / WHEELBASE;
-      const Nf = clamp((MASS * GRAV * CG_REAR) / WHEELBASE - dN, 0.25 * MASS * GRAV, 0.85 * MASS * GRAV);
-      const Nr = clamp((MASS * GRAV * CG_FRONT) / WHEELBASE + dN, 0.25 * MASS * GRAV, 0.85 * MASS * GRAV);
+      const effMass = MASS * massMul;
+      const dN = (effMass * this.axS * CG_HEIGHT * T.wtGain) / WHEELBASE;
+      const Nf = clamp((effMass * GRAV * CG_REAR) / WHEELBASE - dN, 0.25 * effMass * GRAV, 0.85 * effMass * GRAV);
+      const Nr = clamp((effMass * GRAV * CG_FRONT) / WHEELBASE + dN, 0.25 * effMass * GRAV, 0.85 * effMass * GRAV);
 
       // --- grip (anti-spin: grip belakang pulih bila sudut melewati batas) ---
       const assist = u > 3 ? 1 + T.angleAssist * 1.1 * smoothstep(T.maxAngle, T.maxAngle + 0.4, Math.abs(beta)) : 1;
@@ -555,9 +572,9 @@ export class Car {
       const capR = muR * Nr;
 
       // --- gaya longitudinal (ESC turbo menambah tenaga sebanding boost) ---
-      const launch = 0.6 + 0.4 * smoothstep(0, 10, au);
+      const launch = isBot ? 0.85 + 0.15 * smoothstep(0, 10, au) : 0.6 + 0.4 * smoothstep(0, 10, au);
       const Fe =
-        MASS * 7.0 * T.power * (1 + T.turbo * 0.7 * this.boost) * Math.max(0, 1 - (u / TOP) ** 2) * (surface < 1 ? 0.75 : 1) * launch;
+        MASS * massMul * 7.0 * T.power * powerMul * (1 + T.turbo * 0.7 * this.boost) * Math.max(0, 1 - (u / TOP) ** 2) * (surface < 1 ? (isBot ? 0.9 : 0.75) : 1) * launch;
       const kickAdd = T.kick * 0.9 * (this.kickT / KICK_TIME);
       let FxDrive = Fe * (this.thr + kickAdd);
       let FxBrakeF = 0;
@@ -590,16 +607,16 @@ export class Car {
 
       // --- resultan pada badan ---
       const Fy = Fyf * cd + Fyr;
-      const dragAir = MASS * (0.0011 * u * Math.abs(u) * (surface < 1 ? 1.8 : 1) + sgn * (surface < 1 ? 1.6 : 0.25));
-      const Fgrav = -MASS * GRAV * slope * 0.92;
+      const dragAir = effMass * (0.0011 * u * Math.abs(u) * (surface < 1 ? (isBot ? 1.2 : 1.8) : 1) + sgn * (surface < 1 ? (isBot ? 0.8 : 1.6) : 0.25));
+      const Fgrav = -effMass * GRAV * slope * 0.92;
       const Fxb = FxRc + FxFc - Fyf * sd - dragAir + Fgrav;
       let torque = -CG_FRONT * Fyf * cd + CG_REAR * Fyr;
       // peredam yaw anti-spin pada sudut ekstrem
       if (u > 3) torque -= IZ * r * T.angleAssist * 5 * smoothstep(T.maxAngle * 0.9, T.maxAngle * 0.9 + 0.45, Math.abs(beta));
 
-      // --- integrasi ---
-      this.vx += (fx * (Fxb / MASS) + rx * (Fy / MASS)) * h;
-      this.vz += (fz * (Fxb / MASS) + rz * (Fy / MASS)) * h;
+      // --- integrasi (bot lebih ringan)
+      this.vx += (fx * (Fxb / effMass) + rx * (Fy / effMass)) * h;
+      this.vz += (fz * (Fxb / effMass) + rz * (Fy / effMass)) * h;
       r += (torque / IZ) * h;
 
       // kecepatan rendah: arah mengikuti kinematika setir (tidak berputar liar), gerak samping diredam
@@ -617,7 +634,7 @@ export class Car {
       this.heading += r * h;
       v = 0;
 
-      this.axS += ((FxRc + FxFc) / MASS - this.axS) * Math.min(1, h * T.wtRate);
+      this.axS += ((FxRc + FxFc) / effMass - this.axS) * Math.min(1, h * T.wtRate);
       lastFy = Fy;
       lastFx = Fxb;
     }
@@ -628,10 +645,11 @@ export class Car {
     if (!Number.isFinite(this.vx) || !Number.isFinite(this.vz) || !Number.isFinite(this.yawRate)) {
       this.vx = this.vz = this.yawRate = 0;
     }
+    const finalMass = MASS * massMul;
     this.vF = this.vx * fx + this.vz * fz;
     this.vL = this.vx * -fz + this.vz * fx;
-    this.aF = lastFx / MASS;
-    this.aL = lastFy / MASS;
+    this.aF = lastFx / finalMass;
+    this.aL = lastFy / finalMass;
   }
 
   syncVisual(dt: number) {

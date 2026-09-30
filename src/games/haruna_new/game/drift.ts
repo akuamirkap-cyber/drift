@@ -58,17 +58,17 @@ const BASE = { gyro: 0, turbo: 0, wtGain: 1, wtRate: 8, rollVis: 1, expo: 1 };
 export const DRIFT_PRESETS: Record<'sedang' | 'pas' | 'best', DriftTune> = {
   sedang: {
     ...BASE,
-    rearGrip: 1.05,
-    frontGrip: 1.15,
-    power: 0.7,
-    maxSteer: 0.52,
-    counterSteer: 0.85,
-    angleAssist: 0.9,
-    maxAngle: 0.45,
-    falloff: 1.25,
-    kick: 0.8,
-    steerRate: 6,
-    speedFade: 0.5,
+    rearGrip: 1.08,
+    frontGrip: 1.22,
+    power: 0.92,
+    maxSteer: 0.58,
+    counterSteer: 0.82,
+    angleAssist: 0.88,
+    maxAngle: 0.52,
+    falloff: 1.22,
+    kick: 0.95,
+    steerRate: 7.2,
+    speedFade: 0.42,
   },
   pas: {
     ...BASE,
@@ -155,22 +155,22 @@ export interface RcSetup {
 }
 
 export const DEFAULT_RC: RcSetup = {
-  gyroGain: 70,
+  gyroGain: 88,
   escBoost: 55,
-  knuckle: 76,
+  knuckle: 72,
   tire: 'hdpe',
-  caster: 10,
+  caster: 11,
   camber: -6,
-  damperCst: 500,
-  springRate: 0.65,
+  damperCst: 550,
+  springRate: 0.55,
 };
 
 export const RC_PRESETS: { id: string; label: string; sub: string; setup: RcSetup }[] = [
   {
     id: 'rookie',
     label: 'Pemula',
-    sub: 'gyro tinggi, tenaga lembut',
-    setup: { gyroGain: 90, escBoost: 30, knuckle: 70, tire: 'hdpe', caster: 12, camber: -5, damperCst: 600, springRate: 0.6 },
+    sub: 'gyro tinggi, enteng & responsif - REQUEST',
+    setup: { gyroGain: 88, escBoost: 55, knuckle: 72, tire: 'hdpe', caster: 12, camber: -6, damperCst: 550, springRate: 0.55 },
   },
   { id: 'comp', label: 'Kompetisi', sub: 'setelan seimbang', setup: { ...DEFAULT_RC } },
   {
