@@ -42,12 +42,24 @@ export const PRESETS: Record<string, { name: string; icon: string; desc: string;
   beginner: {
     name: 'Pemula',
     icon: '🟢',
-    desc: 'Nempel & stabil, gampang dikontrol',
+    desc: 'Nempel & stabil, gampang dikontrol · 150 km/j',
     t: { engineMode: 'pro_drift', maxSpeed: 150, accel: 20, turnRate: 2.2, gripNormal: 9, gripDrift: 2.4, handbrake: 0.9, driftBoost: 1.3, align: 3.2, gyroGain: 80, maxSteerAngle: 72 },
+  },
+  pemula_sedang: {
+    name: 'Pemula Sedang',
+    icon: '🟢⚡',
+    desc: 'REQUEST: Engine Sedang 190 + Grip Pemula stabil · Paling gampang drift sambil balap',
+    t: { engineMode: 'pro_drift', maxSpeed: 190, accel: 22, turnRate: 2.2, gripNormal: 9, gripDrift: 2.4, handbrake: 0.9, driftBoost: 1.35, align: 3.2, gyroGain: 80, maxSteerAngle: 72 },
+  },
+  sedang: {
+    name: 'Sedang',
+    icon: '🟡',
+    desc: 'Engine Sedang 190 km/j · Seimbang buat belajar drift',
+    t: { engineMode: 'pro_drift', maxSpeed: 190, accel: 26, turnRate: 2.4, gripNormal: 7, gripDrift: 1.6, handbrake: 1.2, driftBoost: 1.5, align: 2.0, gyroGain: 82, maxSteerAngle: 74 },
   },
   balanced: {
     name: 'Seimbang',
-    icon: '🟡',
+    icon: '🔵',
     desc: 'Lebih kalem, cocok buat belajar',
     t: { engineMode: 'pro_drift', maxSpeed: 190, accel: 26, turnRate: 2.4, gripNormal: 7, gripDrift: 1.6, handbrake: 1.2, driftBoost: 1.5, align: 2.0, gyroGain: 82, maxSteerAngle: 74 },
   },
@@ -71,12 +83,13 @@ export const PRESETS: Record<string, { name: string; icon: string; desc: string;
   },
 }
 
-export const DEFAULT_TUNING: Tuning = { ...PRESETS.master.t }
+// DEFAULT: Request user -> Engine Sedang + Preset Pemula
+export const DEFAULT_TUNING: Tuning = { ...PRESETS.pemula_sedang.t }
 
 // objek mutable yang dibaca game loop tiap frame (tanpa re-render React)
 export const tuning: Tuning = { ...loadTuning() }
 
-const TUNING_KEY = 'rc-drift-tuning-v4'
+const TUNING_KEY = 'rc-drift-tuning-v5-pemula-sedang'
 
 export function loadTuning(): Tuning {
   try {

@@ -99,7 +99,8 @@ function makeBot(i: number): Bot {
   }
 }
 
-// Slot grid: 0 = paling depan. Pemain pakai slot terakhir (harus nyalip!)
+// Slot grid: 0 = paling depan.
+// REQUEST USER: Player di depan kiri (slot 0), musuh di kanan (slot 1), 2 di belakang (slot 2,3) -> lomba balap sambil ngedrift
 export function gridSlot(slot: number) {
   const idx = (SAMPLES - 6 - slot * 6 + SAMPLES) % SAMPLES
   const s = samples[idx]
@@ -107,13 +108,15 @@ export function gridSlot(slot: number) {
   return { idx, x: s.x + s.rx * lateral, z: s.z + s.rz * lateral, heading: headingFromTangent(s.tx, s.tz) }
 }
 
-export const PLAYER_GRID_SLOT = BOT_COUNT
+// PLAYER di slot 0 = paling depan kiri, berdampingan dengan bot0 di kanan
+export const PLAYER_GRID_SLOT = 0
 
 export function resetBots() {
   bots.length = 0
   for (let i = 0; i < BOT_COUNT; i++) {
     const b = makeBot(i)
-    const g = gridSlot(i)
+    // Bot pakai slot 1,2,3 -> 1 di kanan player (front row), 2 & 3 di belakang
+    const g = gridSlot(i + 1)
     b.x = g.x
     b.z = g.z
     b.heading = g.heading

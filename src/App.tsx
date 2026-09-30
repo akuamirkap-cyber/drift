@@ -10,7 +10,19 @@ import { DRIFT_PROMPTS, downloadFile } from './data/driftPrompts';
 type GameSelection = 'menu' | 'haruna_new' | 'haruna_old' | 'pro_drift' | 'ebisu' | 'sakura';
 
 export default function App() {
-  const [selectedGame, setSelectedGame] = useState<GameSelection>('menu');
+  // AUTO-START Pro Drift untuk request user: musuh kanan + 2 belakang, engine sedang + preset pemula
+  const getInitialGame = (): GameSelection => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('game')) return params.get('game') as GameSelection;
+      // Default langsung ke pro_drift sesuai request user biar langsung balap
+      if (params.has('menu')) return 'menu';
+      return 'pro_drift';
+    } catch {
+      return 'pro_drift';
+    }
+  };
+  const [selectedGame, setSelectedGame] = useState<GameSelection>(getInitialGame());
   const [showPhysicsGuide, setShowPhysicsGuide] = useState(false);
   const [showOtherGames, setShowOtherGames] = useState(true);
   const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);

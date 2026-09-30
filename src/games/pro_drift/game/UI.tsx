@@ -223,7 +223,7 @@ function Menu() {
           <span className="px-2 py-0.5 rounded bg-fuchsia-500 text-white text-[10px] font-black">👥 TANDEM ×1.6</span>
           <span className="px-2 py-0.5 rounded bg-red-500 text-white text-[10px] font-black">📐 BIG ANGLE +1 MULT</span>
         </div>
-        <div className="text-white/50">Skor = CHIPS × MULT. Gas otomatis. Nabrak / keluar lintasan = kombo hangus. Start dari belakang — salip semuanya!</div>
+        <div className="text-white/50">Skor = CHIPS × MULT. Gas otomatis. Nabrak / keluar lintasan = kombo hangus. 🏁 START: Kamu di depan kiri, musuh di kanan, 2 di belakang — balap sambil ngedrift! Engine Sedang + Preset Pemula aktif.</div>
       </div>
     </div>
   )

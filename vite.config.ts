@@ -16,4 +16,18 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src"),
     },
   },
+  server: {
+    host: "0.0.0.0",
+    port: 5173,
+    strictPort: false,
+    cors: true,
+    hmr: {
+      clientPort: 443,
+    },
+    allowedHosts: true as any,
+  },
+  preview: {
+    host: "0.0.0.0",
+    port: 5173,
+  },
 });
