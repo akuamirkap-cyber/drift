@@ -18,7 +18,6 @@ export interface World {
   treeCount: number;
 }
 
-const H = ROAD_HALF;
 export const TREE_CELL = 8;
 export const tkey = (cx: number, cz: number) => (cx + 2000) * 8000 + (cz + 2000);
 
@@ -127,7 +126,14 @@ function makeBannerTexture(text: string, sub: string, color: string) {
   return t;
 }
 
-export function buildWorld(track: Track, onProgress?: (p: string) => void): World {
+export function buildWorld(
+  track: Track,
+  onProgress?: (p: string) => void,
+  roadHalfWidth = ROAD_HALF
+): World {
+  // Sakura RC can request the same 10.4 m road width as Tokyo Grand Aula
+  // while the standalone Haruna game keeps its original 8.4 m road by default.
+  const H = roadHalfWidth;
   const group = new THREE.Group();
   const rng = mulberry32(42);
 

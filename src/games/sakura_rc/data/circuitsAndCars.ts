@@ -392,7 +392,9 @@ export const RC_CIRCUITS: CircuitDef[] = [
     surfaceName: 'Haruna asphalt, concrete gutter & guardrail',
     hallTheme: 'carpet_convention',
     mapStyle: 'haruna',
-    trackWidth: 8.4,
+    // Same 10.4 m RC Pro road envelope as Tokyo Grand Aula; Haruna terrain and
+    // centerline remain authentic, but the car does not feel squeezed by a narrow road.
+    trackWidth: 10.4,
     floorColor: '#AEADA6',
     gridColor: '#CAC6B8',
     accentColor: '#E5C06A',
