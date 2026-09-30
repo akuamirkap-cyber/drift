@@ -303,11 +303,12 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               {/* Sirkuit */}
               <div className="border-t border-white/10 pt-3">
                 <div className="text-[10px] font-display font-bold tracking-widest text-slate-300 uppercase mb-1.5">
-                  SIRKUIT
+                  MAP / SIRKUIT PRO
                 </div>
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                   {circuits.map((c, idx) => {
                     const active = circuit.id === c.id;
+                    const isHaruna = c.mapStyle === 'haruna';
                     return (
                       <button
                         key={c.id}
@@ -318,15 +319,24 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                             : 'bg-black/40 border-white/10 hover:border-white/40'
                         }`}
                       >
-                        <div className="text-[8px] font-mono-tabular text-pink-200/60">
-                          TRACK 0{idx + 1}
+                        <div className={`text-[8px] font-mono-tabular ${isHaruna ? 'text-[#FDE68A]' : 'text-pink-200/60'}`}>
+                          {isHaruna ? 'MAP OUTDOOR' : `TRACK 0${idx + 1}`}
                         </div>
                         <div className="text-[10px] font-display font-bold text-white leading-tight truncate">
-                          {c.name.split('//')[0].trim()}
+                          {isHaruna ? 'HARUNA / AKINA' : c.name.split('//')[0].trim()}
                         </div>
+                        {isHaruna && (
+                          <div className="mt-0.5 text-[8px] font-mono-tabular text-[#E5C06A] truncate">
+                            JALAN TOUGE • 5 HAIRPIN
+                          </div>
+                        )}
                       </button>
                     );
                   })}
+                </div>
+                <div className="mt-2 rounded-lg bg-black/35 border border-white/10 px-2.5 py-1.5 text-[9px] font-mono-tabular text-slate-300">
+                  MAP AKTIF: <span className="font-bold text-white">{circuit.mapStyle === 'haruna' ? 'HARUNA OUTDOOR / AKINA DOWNHILL' : 'AULA INDOOR / RC DRIFT ARENA'}</span>
+                  <span className="block mt-0.5 text-[#F9A8D4]">MOBIL + FISIKA: SAKURA RC PRO TETAP AKTIF</span>
                 </div>
               </div>
 

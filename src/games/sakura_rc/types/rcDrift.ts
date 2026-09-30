@@ -2,6 +2,9 @@ export type GameMode = 'qualifying' | 'tsuiso' | 'freedrift';
 
 export type CameraMode = 'isometric_broadcast' | 'driver_stand' | 'chase_close';
 
+/** Visual/road environment used by Sakura RC Pro. */
+export type MapStyle = 'aula' | 'haruna';
+
 export type BodyShellMode = 'painted' | 'translucent' | 'naked_chassis';
 
 export type TireCompound = 'hdpe_ptile' | 'poly_slick' | 'silver_dot';
@@ -91,6 +94,8 @@ export interface CircuitDef {
   subtitle: string;
   surfaceName: string;
   hallTheme: 'parquet_aula' | 'epoxy_hall' | 'carpet_convention';
+  /** Haruna switches Sakura RC from the indoor arena to the outdoor touge scene. */
+  mapStyle?: MapStyle;
   trackWidth: number;
   floorColor: string;
   gridColor: string;
