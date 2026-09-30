@@ -259,6 +259,18 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                   onChange={(v) => onSelectGameMode(v as GameMode)}
                 />
                 <Segment
+                  label="KECEPATAN"
+                  options={[
+                    { v: 'normal', label: 'NORMAL' },
+                    { v: 'sedang', label: 'SEDANG' },
+                    { v: '2x', label: '2X' },
+                  ]}
+                  value={tuning.speedLevel ?? 'normal'}
+                  onChange={(v) =>
+                    onChangeTuning({ ...tuning, speedLevel: v as 'normal' | 'sedang' | '2x' })
+                  }
+                />
+                <Segment
                   label="AUTO-GAS"
                   options={[
                     { v: 'on', label: 'ON' },

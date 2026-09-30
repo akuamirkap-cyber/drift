@@ -7,6 +7,7 @@ import {
   GameMode,
   LiveTelemetry,
   SessionResult,
+  SpeedLevel,
   TuningSetup,
 } from './types/rcDrift';
 import {
@@ -36,6 +37,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
     tireCompound: 'hdpe_ptile',
     // Gas harus selalu diberi lewat W / tombol throttle; tidak auto-maju saat idle.
     autoThrottle: false,
+    speedLevel: 'normal',
     soundMode: 'rb26_soundbox',
     smokeConfig: DEFAULT_SMOKE_CONFIG,
     suspension: DEFAULT_SUSPENSION_SETUP,
@@ -268,6 +270,10 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         onSelectCircuit={handleSelectCircuit}
         gameMode={gameMode}
         onSelectGameMode={handleSelectGameMode}
+        speedLevel={tuning.speedLevel ?? 'normal'}
+        onChangeSpeedLevel={(level: SpeedLevel) =>
+          setTuning((prev) => ({ ...prev, speedLevel: level }))
+        }
         cameraMode={cameraMode}
         onCycleCamera={handleCycleCamera}
         bodyShellMode={customization.bodyShellMode}

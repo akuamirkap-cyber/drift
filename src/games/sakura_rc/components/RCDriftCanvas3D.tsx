@@ -2246,25 +2246,34 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     };
 
     // --- 8. PLAYER & PRO AI BOT PHYSICS STATE ---
-    const startPos = trackCurve.getPointAt(0.01);
-    const startTangent = trackCurve.getTangentAt(0.01).normalize();
+    // Fair starting grid: both cars share the same progress, then sit side-by-side.
+    const startGridT = 0.01;
+    const startGridOffset = circuit.trackWidth * 0.30;
+    const harunaRideHeight = isHarunaMap ? 0.08 : 0;
+    const startPos = trackCurve.getPointAt(startGridT);
+    const startTangent = trackCurve.getTangentAt(startGridT).normalize();
+    const startNormal = new THREE.Vector3(-startTangent.z, 0, startTangent.x);
     const initialHeading = Math.atan2(startTangent.x, startTangent.z);
 
-    const aiStartT = 0.046;
-    const aiStartPos = trackCurve.getPointAt(aiStartT);
-    const aiStartTan = trackCurve.getTangentAt(aiStartT).normalize();
+    const aiStartT = startGridT;
+    const aiStartPos = trackCurve
+      .getPointAt(aiStartT)
+      .clone()
+      .addScaledVector(startNormal, startGridOffset);
+    const aiStartTan = startTangent.clone();
     const aiInitialHeading = Math.atan2(aiStartTan.x, aiStartTan.z);
 
     const state = {
-      pos: new THREE.Vector3(startPos.x, startPos.y, startPos.z),
+      pos: new THREE.Vector3(startPos.x, startPos.y + harunaRideHeight, startPos.z),
       vel: new THREE.Vector3(0, 0, 0),
       heading: initialHeading,
       velocityAngle: initialHeading,
       angularVel: 0,
+      raceStarted: false,
       frontSteerAngle: 0,
       rpm: 6500,
       turboActive: false,
-      lastSplineT: 0.01,
+      lastSplineT: startGridT,
       lapCount: 1,
       // Haruna adalah satu kali downhill; arena Sakura tetap memakai 3 lap.
       maxLaps: isHarunaMap ? 1 : 3,
@@ -2297,20 +2306,16 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
     // Autonomous Physics-Driven 1:10 RWD Pro Drift Bot State
     const aiState = {
-      pos: new THREE.Vector3(aiStartPos.x, aiStartPos.y, aiStartPos.z),
-      vel: new THREE.Vector3(
-        Math.sin(aiInitialHeading) * 14,
-        0,
-        Math.cos(aiInitialHeading) * 14
-      ),
-      speed: 14,
+      pos: new THREE.Vector3(aiStartPos.x, aiStartPos.y + harunaRideHeight, aiStartPos.z),
+      vel: new THREE.Vector3(0, 0, 0),
+      speed: 0,
       heading: aiInitialHeading,
       velocityAngle: aiInitialHeading,
       angularVel: 0,
       frontSteerAngle: 0,
       lastSplineT: aiStartT,
-      lateralOffsetTarget: 0,
-      currentLateralOffset: 0,
+      lateralOffsetTarget: startGridOffset,
+      currentLateralOffset: startGridOffset,
       smoothTargetSlip: 0,
       collisionCooldown: 0,
     };
@@ -2410,6 +2415,12 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const curTuning = tuningRef.current;
       const curMode = gameModeRef.current;
       const ext = extInputRef.current;
+      const speedFactor =
+        curTuning.speedLevel === '2x'
+          ? 2.0
+          : curTuning.speedLevel === 'sedang'
+          ? 1.35
+          : 1.0;
 
       let steerInput = ext.steer;
       if (keys['KeyA'] || keys['ArrowLeft']) steerInput += 1;
@@ -2418,6 +2429,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
       const manualThrottle =
         keys['KeyW'] || keys['ArrowUp'] || ext.throttle;
+      if (manualThrottle) state.raceStarted = true;
       const brakePressed =
         keys['KeyS'] || keys['ArrowDown'] || keys['Space'] || ext.brake;
       const turboPressed =
@@ -2509,9 +2521,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       state.turboActive = isTurboEngaged;
 
       const maxSpeed =
-        22.5 * compoundGrip * rearCamberBite * (isTurboEngaged ? 1.18 : 1.0);
+        22.5 * speedFactor * compoundGrip * rearCamberBite * (isTurboEngaged ? 1.18 : 1.0);
       const accelForce =
         26.0 *
+        speedFactor *
         compoundGrip *
         rearCamberBite *
         squatBiteBoost *
@@ -2625,7 +2638,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         // Ikuti elevasi segmen aspal Haruna secara presisi: mobil Sakura tetap menempel
         // pada turunan, bukan melayang atau masuk ke bawah road mesh.
         const roadProjection = findClosestSplineT(state.pos);
-        state.pos.y = roadProjection.height;
+        state.pos.y = roadProjection.height + harunaRideHeight;
       }
       playerRig.root.position.copy(state.pos);
       playerRig.root.rotation.y = state.heading;
@@ -3162,7 +3175,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             ? 0.92
             : 1.04;
         const aiBaseSpeed = curTuning.botPace === 'chill' ? 19.5 : 24.8;
-        const targetAiSpeed = aiBaseSpeed * cornerSlowdown * rubberBandFactor;
+        const targetAiSpeed = state.raceStarted
+          ? aiBaseSpeed * speedFactor * cornerSlowdown * rubberBandFactor
+          : 0;
 
         aiState.speed = THREE.MathUtils.lerp(aiState.speed, targetAiSpeed, dt * 5.2);
 
@@ -3356,7 +3371,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         }
 
         // F. Apply AI Bot Visual Transforms, Counter-Steer, Smoke & Skidmarks
-        if (isHarunaMap) aiState.pos.y = aiClosest.height;
+        if (isHarunaMap) aiState.pos.y = aiClosest.height + harunaRideHeight;
         leadRig.root.position.copy(aiState.pos);
         leadRig.root.rotation.y = aiState.heading;
 

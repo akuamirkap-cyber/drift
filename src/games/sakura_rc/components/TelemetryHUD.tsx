@@ -20,6 +20,7 @@ import {
   CircuitDef,
   GameMode,
   LiveTelemetry,
+  SpeedLevel,
   TuningSetup,
 } from '../types/rcDrift';
 
@@ -29,6 +30,8 @@ interface TelemetryHUDProps {
   onSelectCircuit: (c: CircuitDef) => void;
   gameMode: GameMode;
   onSelectGameMode: (m: GameMode) => void;
+  speedLevel: SpeedLevel;
+  onChangeSpeedLevel: (level: SpeedLevel) => void;
   cameraMode: CameraMode;
   onCycleCamera: () => void;
   bodyShellMode: BodyShellMode;
@@ -110,6 +113,8 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
   onSelectCircuit,
   gameMode,
   onSelectGameMode,
+  speedLevel,
+  onChangeSpeedLevel,
   cameraMode,
   onCycleCamera,
   bodyShellMode,
@@ -257,6 +262,32 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
                 </button>
               );
             })}
+          </div>
+
+          {/* Speed profile — can be changed without leaving the race */}
+          <div className="hud-panel rounded-xl px-2.5 py-1.5 flex items-center gap-2">
+            <span className="text-[10px] font-mono-tabular font-bold tracking-widest text-slate-300 uppercase">
+              KECEPATAN
+            </span>
+            <div className="flex gap-1 bg-black/45 rounded-lg p-0.5 border border-white/10">
+              {([
+                ['normal', 'NORMAL'],
+                ['sedang', 'SEDANG'],
+                ['2x', '2X'],
+              ] as [SpeedLevel, string][]).map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() => onChangeSpeedLevel(value)}
+                  className={`px-2.5 py-1 rounded-md text-[10px] font-mono-tabular font-bold transition cursor-pointer ${
+                    speedLevel === value
+                      ? 'bg-[#FB7185] text-black shadow-[0_0_10px_rgba(251,113,133,0.5)]'
+                      : 'text-slate-300 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* LIVE 2D CIRCUIT TRACK MAP RADAR */}
