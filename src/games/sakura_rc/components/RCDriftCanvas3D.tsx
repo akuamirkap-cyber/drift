@@ -346,7 +346,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const harunaWorld = buildHarunaWorld(
         harunaRuntimeTrack,
         undefined,
-        circuit.trackWidth * 0.5
+        circuit.trackWidth * 0.5,
+        false
       );
       harunaWorld.group.position.y = -HARUNA_START_ALT;
       scene.add(harunaWorld.group);
