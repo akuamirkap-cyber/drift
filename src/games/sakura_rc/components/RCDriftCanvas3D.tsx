@@ -930,14 +930,22 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const trackSamples = 640;
     const halfWidth = circuit.trackWidth * 0.5;
 
-    // Precompute smoothed closed-loop track frames (center point + smooth perpendicular normal)
+    // Precompute frames for both closed Aula loops and the open Haruna downhill.
+    // Haruna keeps an explicit endpoint so the Aula surface does not connect finish
+    // back to start with a phantom strip.
     const smoothTrackFrames: { pt: THREE.Vector3; normal: THREE.Vector3 }[] = [];
-    for (let i = 0; i < trackSamples; i++) {
-      const t = i / trackSamples;
+    const frameCount = isHarunaMap ? trackSamples + 1 : trackSamples;
+    for (let i = 0; i < frameCount; i++) {
+      const t = isHarunaMap ? i / trackSamples : i / trackSamples;
       const pt = trackCurve.getPointAt(t);
-      // Average tangent across a small window to prevent any normal jitter
-      const tPrev = (t - 0.004 + 1) % 1;
-      const tNext = (t + 0.004) % 1;
+      // Average tangent across a small window to prevent any normal jitter.
+      const edge = isHarunaMap ? 1 / trackSamples : 0.004;
+      const tPrev = isHarunaMap
+        ? Math.max(0, t - edge)
+        : (t - edge + 1) % 1;
+      const tNext = isHarunaMap
+        ? Math.min(1, t + edge)
+        : (t + edge) % 1;
       const tan = trackCurve
         .getPointAt(tNext)
         .sub(trackCurve.getPointAt(tPrev))
@@ -1020,14 +1028,17 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const indices: number[] = [];
 
       for (let i = 0; i <= trackSamples; i++) {
-        const frame = smoothTrackFrames[i % trackSamples];
+        const frame = isHarunaMap
+          ? smoothTrackFrames[Math.min(i, trackSamples)]
+          : smoothTrackFrames[i % trackSamples];
         const t = i / trackSamples;
+        const y = frame.pt.y + yOffset;
 
         const left = frame.pt.clone().addScaledVector(frame.normal, -width * 0.5);
         const right = frame.pt.clone().addScaledVector(frame.normal, width * 0.5);
 
-        positions.push(left.x, yOffset, left.z);
-        positions.push(right.x, yOffset, right.z);
+        positions.push(left.x, y, left.z);
+        positions.push(right.x, y, right.z);
 
         uvs.push(0, t * 48);
         uvs.push(1, t * 48);
@@ -1057,9 +1068,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       return mesh;
     };
 
-    if (!isHarunaMap) {
-      // Protective Dark Rubber Sub-Mat under the entire RC Circuit
-      const subMatMesh = buildTrackRibbon(circuit.trackWidth + 2.0, 0.015, '#090C12', 0.45, false);
+    // Tokyo Grand Aula RC surface overlay: Haruna keeps its centerline/world,
+    // but the drivable asphalt is the same Sakura P-Tile track surface.
+    const subMatMesh = buildTrackRibbon(circuit.trackWidth + 2.0, 0.015, '#090C12', 0.45, false);
     scene.add(subMatMesh);
 
     // Main Pro P-Tile Track Surface (satin, tidak silau)
@@ -1121,16 +1132,19 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
       // 4 vertices per cross-section: 0=innerBottom, 1=innerTop, 2=outerTop, 3=outerBottom
       for (let i = 0; i <= trackSamples; i++) {
-        const frame = smoothTrackFrames[i % trackSamples];
+        const frame = isHarunaMap
+          ? smoothTrackFrames[Math.min(i, trackSamples)]
+          : smoothTrackFrames[i % trackSamples];
         const v = (i / trackSamples) * 64;
+        const baseY = frame.pt.y + 0.02;
 
         const pIn = frame.pt.clone().addScaledVector(frame.normal, innerOff);
         const pOut = frame.pt.clone().addScaledVector(frame.normal, outerOff);
 
-        positions.push(pIn.x, 0.02, pIn.z);
-        positions.push(pIn.x, railHeight, pIn.z);
-        positions.push(pOut.x, railHeight, pOut.z);
-        positions.push(pOut.x, 0.02, pOut.z);
+        positions.push(pIn.x, baseY, pIn.z);
+        positions.push(pIn.x, baseY + railHeight, pIn.z);
+        positions.push(pOut.x, baseY + railHeight, pOut.z);
+        positions.push(pOut.x, baseY, pOut.z);
 
         uvs.push(0, v);
         uvs.push(0.33, v);
@@ -1166,6 +1180,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     scene.add(buildContinuousRail(halfWidth + 0.25, 0.45, 0.30, curbStripeMat));
 
     // Left & Right Continuous Sleek Dark Outer Cushion Guardrail Walls
+    // Haruna already has its native mountain guardrails; Aula keeps the extra RC wall.
+    if (!isHarunaMap) {
       scene.add(buildContinuousRail(-(halfWidth + 0.68), 0.32, 0.46, outerRetainingMat));
       scene.add(buildContinuousRail(halfWidth + 0.68, 0.32, 0.46, outerRetainingMat));
     }
