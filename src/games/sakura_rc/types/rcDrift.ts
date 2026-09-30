@@ -53,6 +53,11 @@ export interface TuningSetup {
   gyroGain: number;         // 40 to 100 (%) - Counter-steer stability assist
   maxSteerAngle: number;    // 55 to 82 (deg) - High-angle Ackermann lock
   escTurboBoost: number;    // 15 to 100 (%) - High-RPM brushless turbo timing boost
+  /** Sakura RC Pro Haruna/Akina driving feel controls. */
+  accelerationPower?: number; // 65 to 140 (%) - Motor acceleration strength
+  driftResponse?: number;     // 0 to 100 (%) - Willingness to rotate/hold angle
+  throttleResponse?: number;  // 50 to 150 (%) - How quickly W builds motor output
+  handlingAssist?: number;    // 0 to 100 (%) - Extra stability and line recovery
   tireCompound: TireCompound;
   autoThrottle: boolean;    // Assist steering only; throttle still requires W / throttle button
   speedLevel?: SpeedLevel;  // Normal, sedang, atau 2x speed profile

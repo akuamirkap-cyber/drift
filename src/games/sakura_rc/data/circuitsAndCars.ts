@@ -585,6 +585,81 @@ export interface TuningPreset {
   setup: TuningSetup;
 }
 
+export const HARUNA_DRIVING_PRESETS: TuningPreset[] = [
+  {
+    id: 'haruna_beginner_stable',
+    name: 'HARUNA BEGINNER // STABLE',
+    subtitle: 'Akselerasi lembut, throttle jinak, dan assist tinggi untuk hairpin yang nyaman.',
+    setup: {
+      gyroGain: 94,
+      maxSteerAngle: 68,
+      escTurboBoost: 55,
+      accelerationPower: 78,
+      driftResponse: 28,
+      throttleResponse: 70,
+      handlingAssist: 88,
+      tireCompound: 'silver_dot',
+      autoThrottle: false,
+      speedLevel: 'normal',
+      soundMode: 'rb26_soundbox',
+    },
+  },
+  {
+    id: 'haruna_downhill_balanced',
+    name: 'HARUNA DOWNHILL // BALANCED',
+    subtitle: 'Setup saran: progresif di turunan, tetap bisa drift, dan mudah dikoreksi.',
+    setup: {
+      gyroGain: 86,
+      maxSteerAngle: 74,
+      escTurboBoost: 72,
+      accelerationPower: 100,
+      driftResponse: 55,
+      throttleResponse: 100,
+      handlingAssist: 58,
+      tireCompound: 'hdpe_ptile',
+      autoThrottle: false,
+      speedLevel: 'normal',
+      soundMode: 'rb26_soundbox',
+    },
+  },
+  {
+    id: 'haruna_pro_drift',
+    name: 'HARUNA PRO // AGGRESSIVE DRIFT',
+    subtitle: 'Rotasi dan throttle cepat untuk entry hairpin besar; assist lebih ringan.',
+    setup: {
+      gyroGain: 72,
+      maxSteerAngle: 80,
+      escTurboBoost: 92,
+      accelerationPower: 125,
+      driftResponse: 90,
+      throttleResponse: 135,
+      handlingAssist: 22,
+      tireCompound: 'poly_slick',
+      autoThrottle: false,
+      speedLevel: 'sedang',
+      soundMode: 'rb26_soundbox',
+    },
+  },
+  {
+    id: 'haruna_grip_fast',
+    name: 'HARUNA GRIP // FAST',
+    subtitle: 'Ban lebih menggigit, akselerasi tinggi, dan line recovery untuk pace cepat.',
+    setup: {
+      gyroGain: 90,
+      maxSteerAngle: 70,
+      escTurboBoost: 88,
+      accelerationPower: 132,
+      driftResponse: 15,
+      throttleResponse: 142,
+      handlingAssist: 72,
+      tireCompound: 'silver_dot',
+      autoThrottle: false,
+      speedLevel: '2x',
+      soundMode: 'pro_brushless',
+    },
+  },
+];
+
 export const TUNING_PRESETS: TuningPreset[] = [
   {
     id: 'pro_allrounder',

@@ -34,6 +34,11 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
     gyroGain: 82,
     maxSteerAngle: 76,
     escTurboBoost: 78,
+    // Haruna/Akina feel controls: Sakura RC Pro remains manual and still needs W.
+    accelerationPower: 100,
+    driftResponse: 55,
+    throttleResponse: 100,
+    handlingAssist: 35,
     tireCompound: 'hdpe_ptile',
     // Gas harus selalu diberi lewat W / tombol throttle; tidak auto-maju saat idle.
     autoThrottle: false,
@@ -329,6 +334,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         onChangeTuning={setTuning}
         customization={customization}
         onChangeCustomization={setCustomization}
+        isHarunaMap={circuit.mapStyle === 'haruna'}
         initialTab={pitBenchTab}
       />
 

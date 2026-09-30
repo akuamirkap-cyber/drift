@@ -2305,6 +2305,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       frontSteerAngle: 0,
       rpm: 6500,
       turboActive: false,
+      throttleOutput: 0,
       lastSplineT: startGridT,
       lapCount: 1,
       // Haruna adalah satu kali downhill; arena Sakura tetap memakai 3 lap.
@@ -2460,6 +2461,21 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           ? 1.35
           : 1.0;
 
+      // Haruna/Akina adds its own feel layer without replacing Sakura RC Pro physics.
+      // Aula keeps the original constants, while the downhill setup can tune each layer.
+      const accelerationScale = isHarunaMap
+        ? THREE.MathUtils.clamp((curTuning.accelerationPower ?? 100) / 100, 0.65, 1.4)
+        : 1.0;
+      const driftResponseNorm = isHarunaMap
+        ? THREE.MathUtils.clamp((curTuning.driftResponse ?? 55) / 100, 0, 1)
+        : 0.55;
+      const throttleResponseNorm = isHarunaMap
+        ? THREE.MathUtils.clamp((curTuning.throttleResponse ?? 100) / 100, 0.5, 1.5)
+        : 1.0;
+      const handlingAssistNorm = isHarunaMap
+        ? THREE.MathUtils.clamp((curTuning.handlingAssist ?? 35) / 100, 0, 1)
+        : 0;
+
       let steerInput = ext.steer;
       if (keys['KeyA'] || keys['ArrowLeft']) steerInput += 1;
       if (keys['KeyD'] || keys['ArrowRight']) steerInput -= 1;
@@ -2468,6 +2484,21 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const manualThrottle =
         keys['KeyW'] || keys['ArrowUp'] || ext.throttle;
       if (manualThrottle) state.raceStarted = true;
+
+      // Throttle response changes how quickly motor output builds, never whether
+      // the car is allowed to move: a W/ArrowUp/button press is still required.
+      const throttleTarget = manualThrottle ? 1 : 0;
+      if (isHarunaMap) {
+        const throttleRampRate = 5.5 + throttleResponseNorm * 7.5;
+        state.throttleOutput = THREE.MathUtils.lerp(
+          state.throttleOutput,
+          throttleTarget,
+          1 - Math.exp(-throttleRampRate * dt)
+        );
+      } else {
+        state.throttleOutput = throttleTarget;
+      }
+      const throttleDrive = manualThrottle ? state.throttleOutput : 0;
       const brakePressed =
         keys['KeyS'] || keys['ArrowDown'] || keys['Space'] || ext.brake;
       const turboPressed =
@@ -2530,8 +2561,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       // 3. 1:10 RWD RC DRIFT GYRO, TIRE & PRO SUSPENSION WEIGHT-TRANSFER PHYSICS
       const susp = curTuning.suspension || DEFAULT_SUSPENSION_SETUP;
 
-      // Tokyo Grand Aula and Haruna now share exactly the same RC Pro handling
-      // constants. Haruna contributes only its world, elevation and centerline.
+      // Tokyo Grand Aula and Haruna share the same RC Pro base handling constants.
+      // Haruna's optional feel layer below only adjusts acceleration, slide response,
+      // throttle ramp and recovery assist; the Sakura car/physics remain intact.
       const compoundGrip =
         curTuning.tireCompound === 'silver_dot'
           ? 1.16
@@ -2560,12 +2592,16 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         compoundGrip *
         rearCamberBite *
         squatBiteBoost *
+        accelerationScale *
         (isTurboEngaged ? turboFactor : 1.0);
 
       let currentSpeed = state.vel.length();
 
       if (throttleActive) {
-        currentSpeed = Math.min(maxSpeed, currentSpeed + accelForce * dt);
+        currentSpeed = Math.min(
+          maxSpeed,
+          currentSpeed + accelForce * throttleDrive * dt
+        );
       } else if (brakePressed) {
         currentSpeed = Math.max(0, currentSpeed - 32.0 * dt);
       } else {
@@ -2595,19 +2631,37 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const clutchKickBoost =
         keys['Space'] && Math.abs(steerInput) > 0.05 ? steerInput * 2.4 : 0;
 
-      const gyroDamping = -state.angularVel * (4.2 + gyroGainNorm * 4.5);
+      const gyroDamping =
+        -state.angularVel *
+        (4.2 + gyroGainNorm * 4.5 + handlingAssistNorm * 2.6);
 
       state.angularVel +=
-        (steerTurnRate * 9.5 + clutchKickBoost * 8.0 + gyroDamping) * dt;
+        (steerTurnRate * (9.5 + handlingAssistNorm * 0.9) +
+          clutchKickBoost * 8.0 +
+          gyroDamping) *
+        dt;
       state.heading = wrapAngle(state.heading + state.angularVel * dt);
 
+      // Higher drift response loosens the side bite so the car rotates into
+      // Haruna hairpins; handling assist adds stability without auto-throttle.
+      const driftGripAdjustment = isHarunaMap
+        ? -(driftResponseNorm - 0.55) * 1.3
+        : 0;
       const lateralGrip =
-        (2.1 + (1 - gyroGainNorm) * 0.6) *
+        Math.max(
+          0.85,
+          2.1 +
+            (1 - gyroGainNorm) * 0.6 +
+            driftGripAdjustment +
+            handlingAssistNorm * 0.9
+        ) *
         compoundGrip *
         (throttleActive ? 0.82 : 1.35);
 
       let angleDiff = wrapAngle(state.heading - state.velocityAngle);
-      const maxHoldableSlip = maxSteerRad * (0.88 + gyroGainNorm * 0.14);
+      const maxHoldableSlip =
+        maxSteerRad *
+        (0.88 + gyroGainNorm * 0.14 + (isHarunaMap ? driftResponseNorm * 0.2 : 0));
       if (Math.abs(angleDiff) > maxHoldableSlip) {
         const clampedSign = Math.sign(angleDiff);
         state.heading = wrapAngle(state.velocityAngle + clampedSign * maxHoldableSlip);
@@ -2619,6 +2673,12 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         state.velocityAngle + angleDiff * lateralGrip * dt
       );
 
+      if (isHarunaMap && handlingAssistNorm > 0 && Math.abs(steerInput) < 0.06) {
+        const toTrack = wrapAngle(trackAngle - state.velocityAngle);
+        state.velocityAngle = wrapAngle(
+          state.velocityAngle + toTrack * handlingAssistNorm * 0.65 * dt
+        );
+      }
       if (curTuning.autoThrottle && Math.abs(steerInput) < 0.05) {
         const toTrack = wrapAngle(trackAngle - state.velocityAngle);
         state.velocityAngle = wrapAngle(state.velocityAngle + toTrack * 1.8 * dt);
