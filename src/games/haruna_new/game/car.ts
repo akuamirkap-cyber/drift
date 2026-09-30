@@ -391,7 +391,11 @@ export class Car {
     const gas = this.thr;
 
     // --- yaw ---
-    const maxSteer = 0.62 - 0.44 * Math.min(1, speed / 42);
+    // AE86 steering should stay light at speed; the old curve lost too much lock
+    // on the downhill straights and made the car feel like a heavy simulator.
+    const maxSteer =
+      (0.68 - 0.38 * Math.min(1, speed / 42)) *
+      (1 + handlingAssist * 0.1);
     const steerAng = this.steerVis * maxSteer;
     this.steerAngle = this.steerVis * 0.55;
     let yawTarget = (-vF * Math.tan(steerAng)) / 2.4;
@@ -524,7 +528,7 @@ export class Car {
       const tgt = inp.throttle;
       this.thr +=
         (tgt - this.thr) *
-        Math.min(1, h * (tgt > this.thr ? 3.6 * throttleResponse : 10));
+        Math.min(1, h * (tgt > this.thr ? 4.8 * throttleResponse : 11));
       this.kickT = Math.max(0, this.kickT - h);
       this.hbS += ((inp.handbrake ? 1 : 0) - this.hbS) * Math.min(1, h * 14);
 
@@ -570,7 +574,8 @@ export class Car {
       const capR = muR * Nr;
 
       // --- gaya longitudinal (ESC turbo menambah tenaga sebanding boost) ---
-      const launch = 0.6 + 0.4 * smoothstep(0, 10, au);
+      // Beri dorongan awal yang cukup supaya AE86 tidak terasa berat saat keluar hairpin.
+      const launch = 0.76 + 0.24 * smoothstep(0, 10, au);
       const Fe =
         MASS *
         7.0 *
