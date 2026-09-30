@@ -298,4 +298,4 @@ export function cloneTune(mode: DriftMode, rc: RcSetup = DEFAULT_RC): DriftTune 
   return { ...DRIFT_PRESETS[mode === 'normal' ? 'pas' : mode] };
 }
 
-export const DRIFT_STORE_KEY = 'haruna_drift_v1';
+export const DRIFT_STORE_KEY = 'haruna_drift_v2_sedang_pemula';

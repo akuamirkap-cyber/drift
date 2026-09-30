@@ -33,6 +33,15 @@ export interface Split {
   delta: number | null;
 }
 
+export interface Standing {
+  name: string;
+  me: boolean;
+  color: string;
+  progress: number;
+  finished: boolean;
+  finishTime: number | null;
+}
+
 export interface HudData {
   phase: Phase;
   speed: number;
@@ -58,27 +67,27 @@ export interface HudData {
   impact: number;
   cut: boolean;
   drift: DriftHud;
+  // RACE
+  position: number;
+  totalRacers: number;
+  standings: Standing[];
 }
 
 export interface DriftHud {
   mode: DriftMode;
-  angle: number; // derajat, absolut
-  signed: number; // derajat, + = ekor keluar ke kanan
+  angle: number;
+  signed: number;
   active: boolean;
-  score: number; // skor yang sudah "dibank"
-  chain: number; // skor rantai yang sedang berjalan
-  combo: number; // pengali 1..5
-  best: number; // rantai terbaik
-  rear: number; // 0..1 kejenuhan ban belakang
-  boost: number; // 0..1 tekanan turbo (mode RC)
-  rc: RcSetup; // setelan sasis RC saat ini
+  score: number;
+  chain: number;
+  combo: number;
+  best: number;
+  rear: number;
+  boost: number;
+  rc: RcSetup;
   tune: DriftTune;
 }
 
-// Palet Art of Rally: warna langit = warna kabut (objek jauh melebur ke langit),
-// matahari rendah & hangat, cahaya langit kuat sehingga bayangan lembut kebiruan.
-// bg = fog = horizon langit → objek jauh melebur mulus ke cakrawala.
-// mid/zen = gradien langit; sky/ground = gradien cahaya hemisphere (atas dingin, bawah hangat).
 const TOD = {
   siang: {
     bg: '#e6eeeb', fog: '#e6eeeb', mid: '#bddcec', zen: '#7db6df', glow: 0.9, cloud: '#ffffff', cloudE: '#6a7d8e',
@@ -107,6 +116,54 @@ const TOD = {
 } as const;
 
 const BEST_KEY = 'haruna_akina_best_v1';
+
+// ================= RIVAL / BOT CONFIG =================
+export const BOT_COUNT = 3;
+interface BotDef {
+  name: string;
+  color: string;
+  lane: number; // lateral bias at start (will be overridden by grid)
+  aggression: number;
+  skill: number;
+}
+const BOT_DEFS: BotDef[] = [
+  { name: 'Takeshi (FD)', color: '#ff3b30', lane: 1.9, aggression: 0.85, skill: 0.9 }, // kanan depan
+  { name: 'Yuki (FC)', color: '#4a90e2', lane: -1.9, aggression: 0.7, skill: 0.75 }, // kiri belakang
+  { name: 'Shinji (R32)', color: '#f5c518', lane: 1.9, aggression: 0.9, skill: 0.65 }, // kanan belakang
+];
+
+interface BotState {
+  car: Car;
+  def: BotDef;
+  targetLane: number; // desired lateral offset
+  hbTimer: number;
+  hbCooldown: number;
+  wobble: number;
+  wobbleT: number;
+  maxProgress: number;
+  finished: boolean;
+  finishTime: number | null;
+}
+
+function gridPos(track: Track, slot: number) {
+  // slot 0 = player depan kiri, 1 = rival kanan depan, 2 = belakang kiri, 3 = belakang kanan
+  const baseIdx = 4; // start line
+  const row = Math.floor(slot / 2); // 0 depan, 1 belakang
+  const isLeft = slot % 2 === 0;
+  const lateral = isLeft ? -1.9 : 1.9;
+  const longOffset = -row * 6.5; // meter behind
+  // idx for behind row slightly earlier
+  const idx = Math.max(0, baseIdx - row * 3);
+  const tx = track.tx[idx];
+  const tz = track.tz[idx];
+  const rx = track.rx[idx];
+  const rz = track.rz[idx];
+  const x = track.x[idx] + tx * longOffset + rx * lateral;
+  const z = track.z[idx] + tz * longOffset + rz * lateral;
+  const y = track.y[idx];
+  const heading = Math.atan2(tx, tz);
+  return { x, y, z, heading, idx, lateral };
+}
 
 export class Game {
   renderer: THREE.WebGLRenderer;
@@ -154,10 +211,15 @@ export class Game {
   driftScore = 0;
   driftChain = 0;
   driftCombo = 1;
-  driftGap = 0; // detik sejak terakhir drift
-  driftHold = 0; // detik drift berkelanjutan
+  driftGap = 0;
+  driftHold = 0;
   driftBest = 0;
-  rc: RcSetup = { ...DEFAULT_RC }; // setelan sasis RC (Pit Bench)
+  rc: RcSetup = { ...DEFAULT_RC };
+
+  // race
+  bots: BotState[] = [];
+  position = 1;
+  standings: Standing[] = [];
 
   // fx
   smoke: THREE.InstancedMesh;
@@ -182,7 +244,6 @@ export class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    // tone mapping filmic: highlight tak pernah "pecah", warna jadi creamy
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     container.appendChild(this.renderer.domElement);
@@ -198,7 +259,6 @@ export class Game {
 
     this.hemi = new THREE.HemisphereLight('#ffffff', '#444444', 1);
     this.scene.add(this.hemi);
-    // cahaya pengisi dingin dari arah berlawanan → bayangan biru lembut, bukan hitam
     this.fill = new THREE.DirectionalLight('#cfe0f2', 0.32);
     this.fill.castShadow = false;
     this.scene.add(this.fill, this.fill.target);
@@ -206,15 +266,10 @@ export class Game {
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
-    sc.left = -70;
-    sc.right = 70;
-    sc.top = 70;
-    sc.bottom = -70;
-    sc.near = 1;
-    sc.far = 500;
+    sc.left = -70; sc.right = 70; sc.top = 70; sc.bottom = -70; sc.near = 1; sc.far = 500;
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.05;
-    this.sun.shadow.radius = 4; // bayangan lebih lembut (PCFSoft)
+    this.sun.shadow.radius = 4;
     this.scene.add(this.sun, this.sun.target);
     this.scene.fog = new THREE.Fog('#ffffff', 100, 600);
 
@@ -223,10 +278,10 @@ export class Game {
     this.smoke = new THREE.InstancedMesh(
       sg,
       new THREE.MeshLambertMaterial({ color: '#f7f3e9', transparent: true, opacity: 0.32, depthWrite: false, flatShading: false }),
-      180
+      300
     );
     this.smoke.frustumCulled = false;
-    for (let i = 0; i < 180; i++) {
+    for (let i = 0; i < 300; i++) {
       this.smokeData.push({ x: 0, y: -999, z: 0, vx: 0, vy: 0, vz: 0, life: 1, max: 1, size: 0 });
       this.dummy.position.set(0, -999, 0);
       this.dummy.scale.set(0, 0, 0);
@@ -236,7 +291,7 @@ export class Game {
     }
     this.scene.add(this.smoke);
 
-    // skid marks
+    // skid
     this.skidPos = new Float32Array(this.SKID_MAX * 18);
     this.skidGeo = new THREE.BufferGeometry();
     this.skidGeo.setAttribute('position', new THREE.BufferAttribute(this.skidPos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -250,6 +305,27 @@ export class Game {
     );
     skid.frustumCulled = false;
     this.scene.add(skid);
+
+    // bots init
+    for (let i = 0; i < BOT_COUNT; i++) {
+      const def = BOT_DEFS[i];
+      const botCar = new Car({ color: def.color, name: def.name, isBot: true });
+      // bot pakai engine sedang biar seimbang
+      botCar.setDrift('sedang', cloneTune('sedang'));
+      this.scene.add(botCar.root);
+      this.bots.push({
+        car: botCar,
+        def,
+        targetLane: def.lane,
+        hbTimer: 0,
+        hbCooldown: 0,
+        wobble: 0,
+        wobbleT: 0,
+        maxProgress: 0,
+        finished: false,
+        finishTime: null,
+      });
+    }
 
     // checkpoints
     const t = this.track;
@@ -267,13 +343,13 @@ export class Game {
     try {
       const b = localStorage.getItem(BEST_KEY);
       if (b) this.best = JSON.parse(b);
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     this.resetSplits();
 
     this.car.place(t, 4);
     this.car.syncVisual(0);
+    // place bots in grid even in menu for preview
+    this.placeBotsGrid();
     this.loadDrift();
     this.setTimeOfDay('siang');
     this.buildMinimap();
@@ -284,7 +360,6 @@ export class Game {
     this.loop();
   }
 
-  // ------------------------------------------------------------ public API
   get stats() {
     return {
       length: this.track.length,
@@ -305,9 +380,37 @@ export class Game {
     return out;
   }
 
+  private placeBotsGrid() {
+    const t = this.track;
+    // player slot 0, bots slot 1,2,3
+    const playerGrid = gridPos(t, 0);
+    this.car.x = playerGrid.x;
+    this.car.z = playerGrid.z;
+    this.car.y = playerGrid.y;
+    this.car.heading = playerGrid.heading;
+    this.car.hint = playerGrid.idx;
+    this.car.syncVisual(0);
+
+    for (let i = 0; i < this.bots.length; i++) {
+      const slot = i + 1;
+      const g = gridPos(t, slot);
+      const b = this.bots[i];
+      b.car.x = g.x;
+      b.car.z = g.z;
+      b.car.y = g.y;
+      b.car.heading = g.heading;
+      b.car.hint = g.idx;
+      b.car.vx = 0; b.car.vz = 0; b.car.yawRate = 0;
+      b.maxProgress = g.idx;
+      b.finished = false;
+      b.finishTime = null;
+      b.targetLane = g.lateral;
+      b.car.syncVisual(0);
+    }
+  }
+
   startRace() {
     this.audio.start();
-    this.car.place(this.track, 4);
     this.maxProgress = 4;
     this.time = 0;
     this.countdown = 3.2;
@@ -320,10 +423,12 @@ export class Game {
     this.driftGap = 0;
     this.driftHold = 0;
     this.driftBest = 0;
+    this.position = 1;
     this.phase = 'countdown';
     this.resetSplits();
     this.skidCount = 0;
     this.skidGeo.setDrawRange(0, 0);
+    this.placeBotsGrid();
     this.camYaw = this.car.heading;
     this.snapCamera();
   }
@@ -331,6 +436,7 @@ export class Game {
   toMenu() {
     this.phase = 'menu';
     this.audio.silence();
+    this.placeBotsGrid();
   }
 
   setTimeOfDay(t: TimeOfDay) {
@@ -351,103 +457,69 @@ export class Game {
     this.hemi.groundColor.set(p.ground);
     this.hemi.intensity = p.hemiI;
     (this.world.water.material as THREE.MeshPhongMaterial).color.set(p.water);
-    this.car.lightsOn = t === 'malam';
-    this.car.tailMat.emissive.set(t === 'malam' ? '#aa0000' : '#300000');
+    const lightsOn = t === 'malam';
+    this.car.lightsOn = lightsOn;
+    this.car.tailMat.emissive.set(lightsOn ? '#aa0000' : '#300000');
+    for (const b of this.bots) {
+      b.car.lightsOn = lightsOn;
+      b.car.tailMat.emissive.set(lightsOn ? '#aa0000' : '#300000');
+    }
     this.applyFog();
   }
 
-  setCam(c: CamMode) {
-    this.cam = c;
-    this.applyFog();
-    this.snapCamera();
-  }
+  setCam(c: CamMode) { this.cam = c; this.applyFog(); this.snapCamera(); }
+  cycleCam() { const order: CamMode[] = ['rally', 'chase', 'top']; this.setCam(order[(order.indexOf(this.cam) + 1) % order.length]); }
 
-  cycleCam() {
-    const order: CamMode[] = ['rally', 'chase', 'top'];
-    this.setCam(order[(order.indexOf(this.cam) + 1) % order.length]);
-  }
-
-  // ------------------------------------------------------------ drift API
-  get driftMode(): DriftMode {
-    return this.car.driftMode;
-  }
-
-  setDriftMode(mode: DriftMode) {
-    // tiap mode membawa tuning bawaannya; slider menimpa setelahnya
-    this.car.setDrift(mode, cloneTune(mode, this.rc));
-    this.saveDrift();
-  }
-
-  cycleDrift() {
-    const i = DRIFT_ORDER.indexOf(this.car.driftMode);
-    this.setDriftMode(DRIFT_ORDER[(i + 1) % DRIFT_ORDER.length]);
-  }
-
-  setDriftParam(key: SliderKey, value: number) {
-    this.car.tune[key] = value;
-    this.saveDrift();
-  }
-
-  resetDriftTune() {
-    this.car.tune = cloneTune(this.car.driftMode, this.rc);
-    this.saveDrift();
-  }
+  get driftMode(): DriftMode { return this.car.driftMode; }
+  setDriftMode(mode: DriftMode) { this.car.setDrift(mode, cloneTune(mode, this.rc)); this.saveDrift(); }
+  cycleDrift() { const i = DRIFT_ORDER.indexOf(this.car.driftMode); this.setDriftMode(DRIFT_ORDER[(i + 1) % DRIFT_ORDER.length]); }
+  setDriftParam(key: SliderKey, value: number) { this.car.tune[key] = value; this.saveDrift(); }
+  resetDriftTune() { this.car.tune = cloneTune(this.car.driftMode, this.rc); this.saveDrift(); }
 
   private saveDrift() {
-    try {
-      localStorage.setItem(DRIFT_STORE_KEY, JSON.stringify({ mode: this.car.driftMode, tune: this.car.tune, rc: this.rc }));
-    } catch {
-      /* ignore */
-    }
+    try { localStorage.setItem(DRIFT_STORE_KEY, JSON.stringify({ mode: this.car.driftMode, tune: this.car.tune, rc: this.rc })); } catch {}
   }
 
   private loadDrift() {
-    let mode: DriftMode = 'normal'; // bawaan: engine lama — pilih Sedang / Pas / Best di menu atau tekan G
-    let tune = cloneTune('normal');
+    // REQUEST: engine sedang + preset pemula
+    // Default jadi 'sedang' (engine sedang) dan RC preset rookie (pemula)
+    let mode: DriftMode = 'sedang';
+    let tune = cloneTune('sedang');
+    // Pemula = RC rookie preset
+    this.rc = { gyroGain: 90, escBoost: 30, knuckle: 70, tire: 'hdpe', caster: 12, camber: -5, damperCst: 600, springRate: 0.6 };
     try {
       const raw = localStorage.getItem(DRIFT_STORE_KEY);
       if (raw) {
         const o = JSON.parse(raw);
         if (DRIFT_ORDER.includes(o.mode)) {
           mode = o.mode;
-          if (o.rc) this.rc = { ...DEFAULT_RC, ...o.rc };
+          if (o.rc) this.rc = { ...this.rc, ...o.rc };
           tune = mode === 'rc' ? cloneTune('rc', this.rc) : { ...cloneTune(mode), ...o.tune };
         }
+      } else {
+        // first time -> force sedang + pemula
+        mode = 'sedang';
+        tune = cloneTune('sedang');
       }
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     this.car.setDrift(mode, tune);
   }
 
-  /** Pit Bench: ubah setelan sasis RC. Bila mode RC aktif, fisika langsung ikut berubah. */
   setRc(patch: Partial<RcSetup>) {
     this.rc = { ...this.rc, ...patch };
     if (this.car.driftMode === 'rc') this.car.tune = cloneTune('rc', this.rc);
     this.saveDrift();
   }
-
-  resetRc() {
-    this.setRc({ ...DEFAULT_RC });
-  }
-
-  toggleMute() {
-    this.audio.setMuted(!this.audio.muted);
-  }
-
-  setTouch(k: keyof Game['touch'], v: boolean) {
-    this.touch[k] = v;
-  }
-
+  resetRc() { this.setRc({ gyroGain: 90, escBoost: 30, knuckle: 70, tire: 'hdpe', caster: 12, camber: -5, damperCst: 600, springRate: 0.6 }); }
+  toggleMute() { this.audio.setMuted(!this.audio.muted); }
+  setTouch(k: keyof Game['touch'], v: boolean) { this.touch[k] = v; }
   resetCar() {
     if (this.phase !== 'racing') return;
     const i = Math.max(2, this.maxProgress - 3);
     this.car.place(this.track, i);
-    this.resets++;
-    this.penalty += 5;
+    this.resets++; this.penalty += 5;
     this.lastWheel = [null, null];
   }
-
   dispose() {
     cancelAnimationFrame(this.raf);
     window.removeEventListener('keydown', this.onKeyDown);
@@ -459,18 +531,13 @@ export class Game {
     this.renderer.domElement.remove();
   }
 
-  // ------------------------------------------------------------ internals
   private applyFog() {
     const p = TOD[this.tod];
     const fog = this.scene.fog as THREE.Fog;
     const mul = this.cam === 'chase' ? 1.0 : this.cam === 'top' ? 1.4 : 1.15;
-    fog.near = p.near * mul;
-    fog.far = p.far * mul;
+    fog.near = p.near * mul; fog.far = p.far * mul;
   }
-
-  private resetSplits() {
-    this.splits = this.checkpoints.map((c) => ({ name: c.name, time: null, delta: null }));
-  }
+  private resetSplits() { this.splits = this.checkpoints.map((c) => ({ name: c.name, time: null, delta: null })); }
 
   private onKeyDown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
@@ -488,22 +555,72 @@ export class Game {
   };
   private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase());
   private onResize = () => {
-    const w = this.container.clientWidth;
-    const h = this.container.clientHeight;
-    this.renderer.setSize(w, h);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    const w = this.container.clientWidth; const h = this.container.clientHeight;
+    this.renderer.setSize(w, h); this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
   };
 
   private input(): CarInput {
-    const k = this.keys;
-    const t = this.touch;
+    const k = this.keys; const t = this.touch;
     const up = k.has('arrowup') || k.has('w') || t.up;
     const down = k.has('arrowdown') || k.has('s') || t.down;
     const left = k.has('arrowleft') || k.has('a') || t.left;
     const right = k.has('arrowright') || k.has('d') || t.right;
     const hb = k.has(' ') || t.hb;
     return { throttle: up ? 1 : 0, brake: down ? 1 : 0, steer: (right ? 1 : 0) - (left ? 1 : 0), handbrake: hb };
+  }
+
+  private botInput(bot: BotState, dt: number): CarInput {
+    const track = this.track;
+    const car = bot.car;
+    // wobble for human-like
+    bot.wobbleT += dt;
+    if (bot.wobbleT > 1.2) { bot.wobbleT = 0; bot.wobble = (Math.random() - 0.5) * (1 - bot.def.skill) * 1.5; }
+    const lane = bot.targetLane + bot.wobble * 0.5;
+    const look = Math.round(12 + Math.abs(car.vF) * 0.6 * (0.7 + bot.def.skill * 0.5));
+    const targetIdx = Math.min(track.n - 1, car.proj.i + look);
+    const tx = track.x[targetIdx] + track.rx[targetIdx] * lane;
+    const tz = track.z[targetIdx] + track.rz[targetIdx] * lane;
+    const dx = tx - car.x;
+    const dz = tz - car.z;
+    const desired = Math.atan2(dx, dz);
+    let err = desired - car.heading;
+    while (err > Math.PI) err -= Math.PI * 2;
+    while (err < -Math.PI) err += Math.PI * 2;
+    let steer = err * (1.6 + bot.def.skill * 1.2);
+    // if drifting, steer based on velocity direction
+    if (car.drifting && Math.abs(car.vF) > 6) {
+      const velHead = Math.atan2(car.vx, car.vz);
+      let verr = desired - velHead;
+      while (verr > Math.PI) verr -= Math.PI * 2;
+      while (verr < -Math.PI) verr += Math.PI * 2;
+      steer = verr * 2.0 + err * 0.5;
+    }
+    steer = Math.max(-1, Math.min(1, steer));
+
+    // curvature ahead
+    const nearIdx = Math.min(track.n - 1, car.proj.i + 5);
+    const farIdx = Math.min(track.n - 1, car.proj.i + 25);
+    const crossNear = track.tx[car.proj.i] * track.tz[nearIdx] - track.tz[car.proj.i] * track.tx[nearIdx];
+    const curvNear = Math.abs(Math.asin(Math.max(-1, Math.min(1, crossNear))));
+    const crossFar = track.tx[car.proj.i] * track.tz[farIdx] - track.tz[car.proj.i] * track.tx[farIdx];
+    const curvFar = Math.abs(Math.asin(Math.max(-1, Math.min(1, crossFar))));
+    const corner = Math.max(curvNear, curvFar * 0.7);
+
+    let throttle = 1;
+    let brake = 0;
+    const speed = Math.abs(car.vF) * 3.6;
+    if (corner > 0.6 && speed > 70) { throttle = 0.15; brake = 0.3; }
+    else if (corner > 0.35 && speed > 95) { throttle = 0.5; }
+
+    bot.hbCooldown -= dt;
+    if (bot.hbTimer > 0) bot.hbTimer -= dt;
+    else if (bot.hbCooldown <= 0 && corner > 0.35 - bot.def.aggression * 0.1 && Math.abs(car.vF) > 9 && Math.abs(err) > 0.15) {
+      bot.hbTimer = 0.18 + bot.def.aggression * 0.22;
+      bot.hbCooldown = 0.9 + (1 - bot.def.aggression) * 0.8;
+    }
+    if (Math.abs(car.slipBeta) > 0.9) bot.hbTimer = 0;
+
+    return { throttle: this.phase === 'racing' ? throttle : 0, brake, steer, handbrake: this.phase === 'racing' && bot.hbTimer > 0 };
   }
 
   private loop = () => {
@@ -532,15 +649,10 @@ export class Game {
     if (this.phase === 'countdown') {
       this.countdown -= dt;
       const rev = inp.throttle;
-      // tahan di garis start dengan rem tangan (rem kaki dari keadaan diam akan dibaca sebagai gigi mundur)
       inp = { throttle: 0, brake: 0, steer: inp.steer, handbrake: true };
       car.rpm += ((rev ? 6500 : 1000) - car.rpm) * Math.min(1, dt * 6);
-      if (this.countdown <= 0) {
-        this.phase = 'racing';
-        this.time = 0;
-      }
+      if (this.countdown <= 0) { this.phase = 'racing'; this.time = 0; }
     } else if (this.phase === 'finished') {
-      // mengerem sampai berhenti, lalu lepas rem supaya tidak mundur
       inp = { throttle: 0, brake: Math.abs(car.vF) > 1 ? 0.6 : 0, steer: 0, handbrake: false };
     } else {
       this.time += dt;
@@ -551,7 +663,34 @@ export class Game {
     if (this.phase === 'countdown') car.rpm = Math.max(car.rpm, 900);
     this.updateDriftScore(dt);
 
-    // progress (no shortcuts: must advance sequentially)
+    // bots update
+    for (const bot of this.bots) {
+      const bInp = this.botInput(bot, dt);
+      for (let s = 0; s < steps; s++) bot.car.update(dt / steps, bInp, track, this.world);
+      // progress
+      const pi = bot.car.proj.i;
+      if (pi > bot.maxProgress && pi - bot.maxProgress < 40) bot.maxProgress = pi;
+      // finish check for bot
+      if (!bot.finished && bot.maxProgress >= track.n - 12) {
+        bot.finished = true;
+        bot.finishTime = this.time + this.penalty;
+      }
+      // simple collision avoidance with player (push apart)
+      const dx = bot.car.x - car.x;
+      const dz = bot.car.z - car.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < 3.5 * 3.5 && d2 > 0.01) {
+        const d = Math.sqrt(d2);
+        const push = (3.5 - d) * 0.5;
+        const nx = dx / d; const nz = dz / d;
+        bot.car.x += nx * push;
+        bot.car.z += nz * push;
+        car.x -= nx * push * 0.5;
+        car.z -= nz * push * 0.5;
+      }
+    }
+
+    // player progress
     const pi = car.proj.i;
     if (car.proj.d < ROAD_HALF + 18 && pi > this.maxProgress && pi - this.maxProgress < 25) this.maxProgress = pi;
 
@@ -568,32 +707,23 @@ export class Game {
         this.finishTime = total;
         if (!this.best || total < this.best.total) {
           this.best = { total, splits: this.splits.map((s) => s.time ?? 0) };
-          try {
-            localStorage.setItem(BEST_KEY, JSON.stringify(this.best));
-          } catch {
-            /* ignore */
-          }
+          try { localStorage.setItem(BEST_KEY, JSON.stringify(this.best)); } catch {}
         }
       }
     }
 
-    // fx
+    // fx for player
     const slip = Math.abs(car.vL);
     const sp = Math.abs(car.vF);
     const driftMode = car.driftMode !== 'normal';
-    const spinning = driftMode && inp.throttle > 0.3 && car.rearSlide > 0.75 && sp > 5; // wheelspin saat power-over / clutch kick
-    const sliding =
-      (slip > 3 && sp > 4) ||
-      (inp.handbrake && sp > 6) ||
-      (inp.brake > 0 && sp > 25 && this.frame % 2 === 0) ||
-      spinning ||
-      (driftMode && car.drifting);
+    const spinning = driftMode && inp.throttle > 0.3 && car.rearSlide > 0.75 && sp > 5;
+    const sliding = (slip > 3 && sp > 4) || (inp.handbrake && sp > 6) || (inp.brake > 0 && sp > 25 && this.frame % 2 === 0) || spinning || (driftMode && car.drifting);
     car.rearWheelWorld(this.wheelTmp, track, this.world);
     if (sliding || (!car.onRoad && sp > 6)) {
       for (let w = 0; w < 2; w++) {
         const p = this.wheelTmp[w];
         if (Math.random() < (car.onRoad ? 0.55 : 0.8)) {
-          this.spawnSmoke(p.x, p.y + 0.3, p.z, car.onRoad ? '#f6f2e8' : '#d0c1a2', car.onRoad ? 0.9 : 1.3);
+          this.spawnSmoke(p.x, p.y + 0.3, p.z, car.onRoad ? '#f6f2e8' : '#d0c1a2', car.onRoad ? 0.9 : 1.3, car);
         }
       }
     }
@@ -601,26 +731,36 @@ export class Game {
       for (let w = 0; w < 2; w++) {
         const p = this.wheelTmp[w];
         const lw = this.lastWheel[w];
-        if (lw && lw.distanceToSquared(p) > 0.25) {
-          this.addSkid(lw, p);
-          lw.copy(p);
-        } else if (!lw) this.lastWheel[w] = p.clone();
+        if (lw && lw.distanceToSquared(p) > 0.25) { this.addSkid(lw, p); lw.copy(p); }
+        else if (!lw) this.lastWheel[w] = p.clone();
       }
     } else this.lastWheel = [null, null];
     if (car.impact > 0.3) this.shake = Math.max(this.shake, car.impact);
+
+    // fx for bots (smoke only)
+    for (const bot of this.bots) {
+      const bc = bot.car;
+      const bSlip = Math.abs(bc.vL);
+      const bSp = Math.abs(bc.vF);
+      const bSlide = bSlip > 3 && bSp > 4 || bc.drifting;
+      if (bSlide && bc.onRoad && Math.random() < 0.5) {
+        bc.rearWheelWorld(this.wheelTmp, track, this.world);
+        for (let w = 0; w < 2; w++) {
+          const p = this.wheelTmp[w];
+          this.spawnSmoke(p.x, p.y + 0.3, p.z, '#f6f2e8', 0.8, bc);
+        }
+      }
+    }
+
     this.updateSmoke(dt);
 
     this.audio.setRc(car.driftMode === 'rc');
     this.audio.update(car.rpm, inp.throttle, slip, car.onRoad, car.boost);
-    if (car.fxBov > 0) {
-      this.audio.bov(car.fxBov);
-      car.fxBov = 0;
-    }
-    // backfire: letupan + kilatan api di knalpot (maks 2 per frame)
+    if (car.fxBov > 0) { this.audio.bov(car.fxBov); car.fxBov = 0; }
     for (let k = 0; k < Math.min(2, car.fxBackfire); k++) {
       this.audio.backfire();
       const wp = this.wheelTmp[k % 2];
-      this.spawnSmoke(wp.x, wp.y + 0.35, wp.z, '#ffb25e', 0.55);
+      this.spawnSmoke(wp.x, wp.y + 0.35, wp.z, '#ffb25e', 0.55, car);
     }
     car.fxBackfire = 0;
     this.updateCamera(dt);
@@ -633,20 +773,11 @@ export class Game {
     const t = this.track;
     this.flyT += dt * 38;
     if (this.flyT > t.length - 50) this.flyT = 0;
-    let i = 0;
-    // binary search dist
-    let lo = 0;
-    let hi = t.n - 1;
-    while (lo < hi) {
-      const m = (lo + hi) >> 1;
-      if (t.dist[m] < this.flyT) lo = m + 1;
-      else hi = m;
-    }
-    i = lo;
+    let lo = 0; let hi = t.n - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (t.dist[m] < this.flyT) lo = m + 1; else hi = m; }
+    const i = lo;
     const j = Math.min(t.n - 1, i + 25);
-    const tx = t.x[j];
-    const tz = t.z[j];
-    const ty = t.y[j];
+    const tx = t.x[j]; const tz = t.z[j]; const ty = t.y[j];
     const ang = this.flyT * 0.0012;
     const target = new THREE.Vector3(tx + Math.sin(ang) * 90, ty + 85, tz + Math.cos(ang) * 90);
     if (this.camPos.lengthSq() === 0) this.camPos.copy(target);
@@ -665,23 +796,9 @@ export class Game {
     const car = this.car;
     const speed = Math.hypot(car.vx, car.vz);
     const velYaw = speed > 4 ? Math.atan2(car.vx, car.vz) : car.heading;
-    let fov = 36;
-    let back = 30;
-    let up = 30;
-    let ahead = 5 + Math.min(speed, 40) * 0.18;
-    let yawTarget = velYaw;
-    if (this.cam === 'chase') {
-      back = 8.5;
-      up = 3.2;
-      ahead = 4;
-      fov = 62 + Math.min(speed, 50) * 0.18;
-      yawTarget = car.heading * 0.6 + velYaw * 0.4;
-    } else if (this.cam === 'top') {
-      back = 8;
-      up = 75;
-      ahead = 6 + Math.min(speed, 40) * 0.3;
-      fov = 40;
-    }
+    let fov = 36; let back = 30; let up = 30; let ahead = 5 + Math.min(speed, 40) * 0.18; let yawTarget = velYaw;
+    if (this.cam === 'chase') { back = 8.5; up = 3.2; ahead = 4; fov = 62 + Math.min(speed, 50) * 0.18; yawTarget = car.heading * 0.6 + velYaw * 0.4; }
+    else if (this.cam === 'top') { back = 8; up = 75; ahead = 6 + Math.min(speed, 40) * 0.3; fov = 40; }
     return { back, up, ahead, fov, yawTarget };
   }
 
@@ -701,11 +818,9 @@ export class Game {
     while (d < -Math.PI) d += Math.PI * 2;
     const yawSpeed = this.cam === 'chase' ? 4 : this.cam === 'top' ? 0.8 : 1.3;
     this.camYaw += d * Math.min(1, dt * yawSpeed);
-    const sx = Math.sin(this.camYaw);
-    const sz = Math.cos(this.camYaw);
+    const sx = Math.sin(this.camYaw); const sz = Math.cos(this.camYaw);
     const target = new THREE.Vector3(car.x - sx * o.back, car.y + o.up, car.z - sz * o.back);
     const look = new THREE.Vector3(car.x + sx * o.ahead, car.y + (this.cam === 'chase' ? 1.2 : 0), car.z + sz * o.ahead);
-    // keep above terrain for chase cam
     if (this.cam === 'chase') {
       const th = this.world.terrainHeight(target.x, target.z);
       target.y = Math.max(target.y, th + 1.5);
@@ -731,22 +846,20 @@ export class Game {
     this.sun.target.position.set(x, y, z);
     this.sun.position.set(x + p.sunDir[0] * 220, y + p.sunDir[1] * 220, z + p.sunDir[2] * 220);
     this.sun.target.updateMatrixWorld();
-    // cahaya pengisi datang dari sisi berlawanan dan lebih rendah
     this.fill.target.position.set(x, y, z);
     this.fill.position.set(x - p.sunDir[0] * 160, y + 55, z - p.sunDir[2] * 160);
     this.fill.target.updateMatrixWorld();
   }
 
-  private spawnSmoke(x: number, y: number, z: number, color: string, size: number) {
+  private spawnSmoke(x: number, y: number, z: number, color: string, size: number, srcCar?: Car) {
     const p = this.smokeData[this.smokeIdx];
-    p.x = x;
-    p.y = y;
-    p.z = z;
-    p.vx = this.car.vx * 0.15 + (Math.random() - 0.5) * 1.2;
+    p.x = x; p.y = y; p.z = z;
+    const vx = srcCar ? srcCar.vx : this.car.vx;
+    const vz = srcCar ? srcCar.vz : this.car.vz;
+    p.vx = vx * 0.15 + (Math.random() - 0.5) * 1.2;
     p.vy = 0.6 + Math.random() * 0.8;
-    p.vz = this.car.vz * 0.15 + (Math.random() - 0.5) * 1.2;
-    p.life = 0;
-    p.max = 1.2 + Math.random() * 1.0;
+    p.vz = vz * 0.15 + (Math.random() - 0.5) * 1.2;
+    p.life = 0; p.max = 1.2 + Math.random() * 1.0;
     p.size = size * (0.7 + Math.random() * 0.6);
     this.smoke.setColorAt(this.smokeIdx, new THREE.Color(color));
     if (this.smoke.instanceColor) this.smoke.instanceColor.needsUpdate = true;
@@ -766,12 +879,8 @@ export class Game {
         }
         continue;
       }
-      p.life += dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.z += p.vz * dt;
-      p.vx *= 0.96;
-      p.vz *= 0.96;
+      p.life += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      p.vx *= 0.96; p.vz *= 0.96;
       const t = p.life / p.max;
       const s = p.size * (0.5 + t * 2.4) * (1 - t * t);
       this.dummy.position.set(p.x, p.y, p.z);
@@ -784,21 +893,11 @@ export class Game {
   }
 
   private addSkid(a: THREE.Vector3, b: THREE.Vector3) {
-    const dx = b.x - a.x;
-    const dz = b.z - a.z;
-    const l = Math.hypot(dx, dz) || 1;
-    const nx = (-dz / l) * 0.11;
-    const nz = (dx / l) * 0.11;
+    const dx = b.x - a.x; const dz = b.z - a.z; const l = Math.hypot(dx, dz) || 1;
+    const nx = (-dz / l) * 0.11; const nz = (dx / l) * 0.11;
     const i = (this.skidCount % this.SKID_MAX) * 18;
-    const y1 = a.y + 0.05;
-    const y2 = b.y + 0.05;
-    this.skidPos.set(
-      [
-        a.x - nx, y1, a.z - nz, a.x + nx, y1, a.z + nz, b.x - nx, y2, b.z - nz,
-        a.x + nx, y1, a.z + nz, b.x + nx, y2, b.z + nz, b.x - nx, y2, b.z - nz,
-      ],
-      i
-    );
+    const y1 = a.y + 0.05; const y2 = b.y + 0.05;
+    this.skidPos.set([a.x - nx, y1, a.z - nz, a.x + nx, y1, a.z + nz, b.x - nx, y2, b.z - nz, a.x + nx, y1, a.z + nz, b.x + nx, y2, b.z + nz, b.x - nx, y2, b.z - nz], i);
     this.skidCount++;
     this.skidGeo.setDrawRange(0, Math.min(this.skidCount, this.SKID_MAX) * 6);
     (this.skidGeo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
@@ -806,56 +905,27 @@ export class Game {
 
   private buildMinimap() {
     if (!this.minimap) return;
-    const t = this.track;
-    const S = 220;
-    const c = document.createElement('canvas');
-    c.width = S;
-    c.height = S;
+    const t = this.track; const S = 220;
+    const c = document.createElement('canvas'); c.width = S; c.height = S;
     const g = c.getContext('2d')!;
-    const b = t.bounds;
-    const pad = 14;
+    const b = t.bounds; const pad = 14;
     const s = Math.min((S - pad * 2) / (b.maxX - b.minX), (S - pad * 2) / (b.maxZ - b.minZ));
     const ox = pad + ((S - pad * 2) - (b.maxX - b.minX) * s) / 2 - b.minX * s;
     const oz = pad + ((S - pad * 2) - (b.maxZ - b.minZ) * s) / 2 - b.minZ * s;
     this.mapXf = { s, ox, oz };
-    g.lineCap = 'round';
-    g.lineJoin = 'round';
-    g.strokeStyle = 'rgba(0,0,0,0.45)';
-    g.lineWidth = 6;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 6;
     g.beginPath();
-    for (let i = 0; i < t.n; i += 2) {
-      const x = t.x[i] * s + ox;
-      const y = t.z[i] * s + oz;
-      if (i === 0) g.moveTo(x, y);
-      else g.lineTo(x, y);
-    }
+    for (let i = 0; i < t.n; i += 2) { const x = t.x[i] * s + ox; const y = t.z[i] * s + oz; if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); }
     g.stroke();
-    g.strokeStyle = '#f5efe0';
-    g.lineWidth = 2.5;
-    g.stroke();
-    // hairpin zone highlight
-    g.strokeStyle = '#f0b98a';
-    g.lineWidth = 3;
+    g.strokeStyle = '#f5efe0'; g.lineWidth = 2.5; g.stroke();
+    g.strokeStyle = '#f0b98a'; g.lineWidth = 3;
     g.beginPath();
-    for (let i = t.hairpinStart; i <= t.hairpinEnd; i += 1) {
-      const x = t.x[i] * s + ox;
-      const y = t.z[i] * s + oz;
-      if (i === t.hairpinStart) g.moveTo(x, y);
-      else g.lineTo(x, y);
-    }
+    for (let i = t.hairpinStart; i <= t.hairpinEnd; i += 1) { const x = t.x[i] * s + ox; const y = t.z[i] * s + oz; if (i === t.hairpinStart) g.moveTo(x, y); else g.lineTo(x, y); }
     g.stroke();
-    // start / finish
-    const dot = (i: number, col: string) => {
-      g.fillStyle = col;
-      g.beginPath();
-      g.arc(t.x[i] * s + ox, t.z[i] * s + oz, 4, 0, Math.PI * 2);
-      g.fill();
-    };
-    dot(0, '#2ecc71');
-    dot(t.n - 1, '#e74c3c');
-    this.mapBg = c;
-    this.minimap.width = S;
-    this.minimap.height = S;
+    const dot = (i: number, col: string) => { g.fillStyle = col; g.beginPath(); g.arc(t.x[i] * s + ox, t.z[i] * s + oz, 4, 0, Math.PI * 2); g.fill(); };
+    dot(0, '#2ecc71'); dot(t.n - 1, '#e74c3c');
+    this.mapBg = c; this.minimap.width = S; this.minimap.height = S;
   }
 
   private drawMinimap(x: number, z: number, heading: number) {
@@ -864,21 +934,17 @@ export class Game {
     g.clearRect(0, 0, this.minimap.width, this.minimap.height);
     g.drawImage(this.mapBg, 0, 0);
     const { s, ox, oz } = this.mapXf;
-    const px = x * s + ox;
-    const py = z * s + oz;
-    g.save();
-    g.translate(px, py);
-    g.rotate(-heading);
-    g.fillStyle = '#ffd23f';
-    g.strokeStyle = '#111';
-    g.lineWidth = 1.5;
-    g.beginPath();
-    g.moveTo(0, 7);
-    g.lineTo(5, -5);
-    g.lineTo(-5, -5);
-    g.closePath();
-    g.fill();
-    g.stroke();
+    // bots
+    for (const bot of this.bots) {
+      const px = bot.car.x * s + ox;
+      const py = bot.car.z * s + oz;
+      g.fillStyle = bot.def.color;
+      g.beginPath(); g.arc(px, py, 3, 0, Math.PI * 2); g.fill();
+    }
+    const px = x * s + ox; const py = z * s + oz;
+    g.save(); g.translate(px, py); g.rotate(-heading);
+    g.fillStyle = '#ffd23f'; g.strokeStyle = '#111'; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(0, 7); g.lineTo(5, -5); g.lineTo(-5, -5); g.closePath(); g.fill(); g.stroke();
     g.restore();
   }
 
@@ -888,33 +954,23 @@ export class Game {
     return { text, dir: c.dir, grade: c.grade, dist, hairpinNo: c.hairpinNo };
   }
 
-  /** Skor = kecepatan × sudut × combo. Rantai dibank bila drift berhenti >1,1 dtk; hangus bila menabrak / keluar aspal. */
   private updateDriftScore(dt: number) {
     if (this.phase !== 'racing') return;
     const car = this.car;
     const kmh = Math.abs(car.vF) * 3.6;
     const crashed = car.impact > 0.5 || (!car.onRoad && this.driftChain > 0);
     if (car.drifting && !crashed) {
-      this.driftGap = 0;
-      this.driftHold += dt;
+      this.driftGap = 0; this.driftHold += dt;
       this.driftCombo = Math.min(5, 1 + Math.floor(this.driftHold / 2.5));
       const deg = (car.driftAngle * 180) / Math.PI;
       this.driftChain += kmh * deg * 0.012 * this.driftCombo * dt;
       return;
     }
     this.driftGap += dt;
-    if (crashed) {
-      this.driftChain = 0; // hangus
-      this.driftHold = 0;
-      this.driftCombo = 1;
-    } else if (this.driftGap > 1.1) {
-      if (this.driftChain > 0) {
-        this.driftScore += this.driftChain;
-        this.driftBest = Math.max(this.driftBest, this.driftChain);
-      }
-      this.driftChain = 0;
-      this.driftHold = 0;
-      this.driftCombo = 1;
+    if (crashed) { this.driftChain = 0; this.driftHold = 0; this.driftCombo = 1; }
+    else if (this.driftGap > 1.1) {
+      if (this.driftChain > 0) { this.driftScore += this.driftChain; this.driftBest = Math.max(this.driftBest, this.driftChain); }
+      this.driftChain = 0; this.driftHold = 0; this.driftCombo = 1;
     }
   }
 
@@ -944,6 +1000,22 @@ export class Game {
     }
     const hz = idx >= t.hairpinStart && idx <= t.hairpinEnd;
     const alt = (this.phase === 'menu' ? t.y[0] : car.y) + ALT_OFFSET;
+
+    // standings
+    const all = [
+      { name: 'KAMU (AE86)', me: true, color: '#ffffff', progress: this.maxProgress, finished: this.phase === 'finished' && this.maxProgress >= t.n - 12, finishTime: this.finishTime },
+      ...this.bots.map(b => ({ name: b.def.name, me: false, color: b.def.color, progress: b.maxProgress, finished: b.finished, finishTime: b.finishTime }))
+    ];
+    all.sort((a, b) => {
+      if (a.finished && b.finished) return (a.finishTime ?? 0) - (b.finishTime ?? 0);
+      if (a.finished) return -1;
+      if (b.finished) return 1;
+      return b.progress - a.progress;
+    });
+    const pos = all.findIndex(s => s.me) + 1;
+    this.position = pos || 1;
+    this.standings = all;
+
     this.onHud({
       phase: this.phase,
       speed: Math.abs(car.vF) * 3.6,
@@ -968,6 +1040,9 @@ export class Game {
       muted: this.audio.muted,
       impact: car.impact,
       cut: this.phase === 'racing' && car.proj.i - this.maxProgress >= 25,
+      position: this.position,
+      totalRacers: all.length,
+      standings: all,
       drift: {
         mode: car.driftMode,
         angle: (car.driftAngle * 180) / Math.PI,
@@ -985,4 +1060,3 @@ export class Game {
     });
   }
 }
-

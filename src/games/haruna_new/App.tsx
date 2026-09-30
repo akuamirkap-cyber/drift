@@ -196,10 +196,17 @@ export default function App({ onSwitchGame }: { onSwitchGame?: () => void } = {}
               HARUNA <span className="text-[#f0b98a]">榛名山</span>
             </h1>
             <p className="mt-2 text-sm text-white/70">
-              Turunan Mt. Haruna (a.k.a. <i>Akina</i>) — Gunma Prefectural Route 33. Start dari tepi Danau Haruna, lalu
-              turun lewat bagian cepat, straight panjang, <b>五連続ヘアピン (5 hairpin berturut-turut)</b>, sampai ke
-              Ikaho.
+              Turunan Mt. Haruna (a.k.a. <i>Akina</i>) — Gunma Prefectural Route 33. <b className="text-amber-300">🏁 MODE BALAP BARU:</b> Start grid 4 mobil — kamu depan kiri, musuh di kanan, 2 di belakang! Lomba downhill sambil ngedrift.
+              Lewat bagian cepat, straight panjang, <b>五連続ヘアピン (5 hairpin berturut-turut)</b>, sampai Ikaho. Engine Sedang + Preset Pemula (Rookie) aktif.
             </p>
+            <div className="mt-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs">
+              <div className="font-black text-amber-300">🏁 FORMASI START (REQUEST):</div>
+              <div className="text-white/70 mt-1">• Slot 0 (kiri depan): <b className="text-white">KAMU - AE86 Panda</b></div>
+              <div className="text-white/70">• Slot 1 (kanan depan): <b className="text-red-400">Takeshi FD Merah</b> - musuh di kanan</div>
+              <div className="text-white/70">• Slot 2 (kiri belakang): <b className="text-blue-300">Yuki FC Biru</b></div>
+              <div className="text-white/70">• Slot 3 (kanan belakang): <b className="text-yellow-300">Shinji R32 Kuning</b></div>
+              <div className="text-[10px] text-white/50 mt-1.5">Engine: Sedang (drift ringan mudah) + Preset Pemula (Rookie gyro 90%)</div>
+            </div>
 
             {stats && (
               <div className="mt-5 grid grid-cols-3 gap-2 text-center">
@@ -325,16 +332,39 @@ export default function App({ onSwitchGame }: { onSwitchGame?: () => void } = {}
             </button>
           )}
 
-          {/* timer + splits */}
-          <div className={`pointer-events-none absolute left-4 ${onSwitchGame ? 'top-14' : 'top-4'} min-w-[210px] rounded-2xl bg-black/35 p-3 backdrop-blur-sm`}>
-            <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/60">Haruna · Downhill</div>
-            <div className="font-mono text-4xl font-black tabular-nums">{fmt(hud.time)}</div>
-            {hud.penalty > 0 && <div className="text-xs font-bold text-red-300">+{hud.penalty}s penalti ({hud.resets} reset)</div>}
+          {/* timer + splits + POSITION RACE - REQUEST: musuh kanan + 2 belakang */}
+          <div className={`pointer-events-none absolute left-4 ${onSwitchGame ? 'top-14' : 'top-4'} min-w-[240px] rounded-2xl bg-black/45 p-3 backdrop-blur-md border border-white/10`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/60">Haruna · Downhill Race</div>
+                <div className="font-mono text-4xl font-black tabular-nums">{fmt(hud.time)}</div>
+                {hud.penalty > 0 && <div className="text-xs font-bold text-red-300">+{hud.penalty}s penalti ({hud.resets} reset)</div>}
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-widest text-white/50">Posisi</div>
+                <div className={`text-3xl font-black italic leading-none ${hud.position === 1 ? 'text-yellow-300' : hud.position === 2 ? 'text-slate-200' : hud.position === 3 ? 'text-amber-400' : 'text-white'}`}>
+                  P{hud.position}<span className="text-white/40 text-sm not-italic">/{hud.totalRacers || 4}</span>
+                </div>
+                <div className="text-[10px] text-white/50 mt-1">{(hud.progress * 100).toFixed(1)}%</div>
+              </div>
+            </div>
+            {hud.standings && hud.standings.length > 0 && (
+              <div className="mt-2 space-y-0.5 border-t border-white/10 pt-2">
+                {hud.standings.map((s, i) => (
+                  <div key={s.name} className={`flex items-center gap-1.5 text-[11px] leading-tight ${s.me ? 'text-yellow-300 font-black bg-yellow-400/10 rounded px-1' : 'text-white/70'}`}>
+                    <span className="w-3 text-right tabular-nums">{i + 1}</span>
+                    <span className="w-2 h-2 rounded-full border border-white/30" style={{ background: s.color }} />
+                    <span className="flex-1 truncate">{s.name}</span>
+                    {s.finished && <span className="text-[9px]">FIN</span>}
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="mt-2 space-y-0.5">
               {hud.splits.map((s) => (
-                <div key={s.name} className="flex items-center justify-between gap-3 text-xs">
+                <div key={s.name} className="flex items-center justify-between gap-3 text-[11px]">
                   <span className={s.time != null ? 'text-white/90' : 'text-white/40'}>{s.name}</span>
-                  <span className="font-mono tabular-nums">
+                  <span className="font-mono tabular-nums text-[11px]">
                     {s.time != null ? fmt(s.time) : '—'}
                     {s.delta != null && (
                       <span className={`ml-1 ${s.delta < 0 ? 'text-emerald-300' : 'text-red-300'}`}>{fmtDelta(s.delta)}</span>
@@ -342,6 +372,9 @@ export default function App({ onSwitchGame }: { onSwitchGame?: () => void } = {}
                   </span>
                 </div>
               ))}
+            </div>
+            <div className="mt-2 text-[10px] leading-tight text-amber-300/80 bg-amber-500/10 rounded-lg p-1.5 border border-amber-500/20">
+              🏁 Grid: Kamu depan kiri, musuh kanan depan, 2 belakang — Engine Sedang + Preset Pemula (Rookie)
             </div>
           </div>
 

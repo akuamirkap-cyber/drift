@@ -109,8 +109,17 @@ export class Car {
   private prevThrRaw = 0;
   private backfireCd = 0;
 
-  constructor() {
-    const white = new THREE.MeshLambertMaterial({ color: '#f6f3ea' });
+  // Untuk bot rival: bisa kasih warna custom (misal merah, biru, kuning)
+  isBot = false;
+  botName = '';
+  botColor = '#f6f3ea';
+
+  constructor(opts?: { color?: string; name?: string; isBot?: boolean }) {
+    const bodyColor = opts?.color || '#f6f3ea';
+    this.botColor = bodyColor;
+    this.isBot = !!opts?.isBot;
+    this.botName = opts?.name || '';
+    const white = new THREE.MeshLambertMaterial({ color: bodyColor });
     const black = new THREE.MeshLambertMaterial({ color: '#2a2a28' });
     const glass = new THREE.MeshLambertMaterial({ color: '#33414f' });
     const chrome = new THREE.MeshLambertMaterial({ color: '#b9bcb6' });

@@ -10,16 +10,16 @@ import { DRIFT_PROMPTS, downloadFile } from './data/driftPrompts';
 type GameSelection = 'menu' | 'haruna_new' | 'haruna_old' | 'pro_drift' | 'ebisu' | 'sakura';
 
 export default function App() {
-  // AUTO-START Pro Drift untuk request user: musuh kanan + 2 belakang, engine sedang + preset pemula
+  // AUTO-START Haruna AE86 Race untuk request user: musuh kanan + 2 belakang, engine sedang + preset pemula
   const getInitialGame = (): GameSelection => {
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.get('game')) return params.get('game') as GameSelection;
-      // Default langsung ke pro_drift sesuai request user biar langsung balap
+      // Default langsung ke haruna_new (AE86 Toyota) sesuai request user biar langsung balap
       if (params.has('menu')) return 'menu';
-      return 'pro_drift';
+      return 'haruna_new';
     } catch {
-      return 'pro_drift';
+      return 'haruna_new';
     }
   };
   const [selectedGame, setSelectedGame] = useState<GameSelection>(getInitialGame());
