@@ -209,6 +209,13 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
     setSessionResult(null);
   };
 
+  // Haruna opens directly on the downhill setup so its acceleration/drift controls
+  // are immediately discoverable; Aula keeps the original suspension entry point.
+  const handleOpenPitBench = () => {
+    setPitBenchTab(circuit.mapStyle === 'haruna' ? 'tuning' : 'suspension');
+    setIsPitBenchOpen(true);
+  };
+
   return (
     <main
       onPointerDown={() => rcSound.init()}
@@ -256,10 +263,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
           onToggleMute={handleToggleMute}
           rcCredits={rcCredits}
           onStart={handleStartFromMenu}
-          onOpenSetup={() => {
-            setPitBenchTab('suspension');
-            setIsPitBenchOpen(true);
-          }}
+          onOpenSetup={handleOpenPitBench}
           onOpenCameraFx={() => {
             setPitBenchTab('smoke');
             setIsPitBenchOpen(true);
@@ -303,7 +307,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         rcCredits={rcCredits}
         isMuted={isMuted}
         onToggleMute={handleToggleMute}
-        onOpenPitBench={() => setIsPitBenchOpen(true)}
+        onOpenPitBench={handleOpenPitBench}
         onResetRun={handleResetRun}
         externalSteer={externalSteer}
         onChangeExternalSteer={(val) => {
@@ -357,7 +361,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         onReplay={handleResetRun}
         onOpenPitBench={() => {
           setSessionResult(null);
-          setIsPitBenchOpen(true);
+          handleOpenPitBench();
         }}
       />
 
